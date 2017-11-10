@@ -83,9 +83,14 @@ static void add_diamond_layer(int layer, float vx1, float vy1, float vx2, float 
 //static void add_filled_rectangle(int layer, float x1, float y1, float x2, float y2, ALLEGRO_COLOR fill_col);
 void draw_stream_beam(float x1, float by1, float x2, float y2, int col, int status, int counter, int hit);
 void draw_slice_beam(float x1, float by1, float x2, float y2, int col, int time_since_firing, int hit);
-static void draw_beam_triangles(int layer, float x1, float by1, float x2, float y2, ALLEGRO_COLOR stream_col);
-static void draw_fade_slice_triangles(int layer, float x1, float by1, float x2, float y2, ALLEGRO_COLOR stream_col, ALLEGRO_COLOR base_col);
-static void draw_beam_bloom_triangles(int layer, float x1, float by1, float x2, float y2, ALLEGRO_COLOR centre_col, ALLEGRO_COLOR edge_col);
+void draw_stream_triangles(int layer, float x1, float by1, float x2, float y2,
+						   float stream_dir_x, float stream_dir_y,
+						   float beam_base_flash_size, float beam_width, float beam_end_flash_size,
+						   ALLEGRO_COLOR centre_col, ALLEGRO_COLOR edge_col);
+static void draw_fade_slice_triangles(int layer, float x1, float by1, float x2, float y2,
+									  float stream_dir_x, float stream_dir_y,
+									  float beam_base_flash_size, float beam_width, float beam_end_flash_size,
+									  ALLEGRO_COLOR stream_col, ALLEGRO_COLOR base_col);
 //void draw_spike_line(float x1, float by1, float x2, float y2, int col, int counter);
 //static unsigned int packet_rand(struct packet_struct* pack, int mod);
 static void draw_burst_tail(float x, float y, float x_step, float y_step, float packet_angle, int packet_time, int start_time, int end_time, int col);
@@ -260,8 +265,7 @@ struct bloom_ribbon_state_struct
 
 	int layer;
 	ALLEGRO_COLOR vertex_col [2]; // for now just have the same colours for the whole ribbon. Could do per-vertex instead.
-	float vertex_x [BLOOM_RIBBON_VERTICES] [3];
-	float vertex_y [BLOOM_RIBBON_VERTICES] [3];
+	float vertex [BLOOM_RIBBON_VERTICES] [3] [2];
 	int vertex_pos;
 
 };
@@ -339,20 +343,11 @@ void draw_vbuf(void);
 void add_line(int layer, float x, float y, float xa, float ya, ALLEGRO_COLOR col)
 {
 
-	vbuf.buffer_line[vbuf.vertex_pos_line].x = x;
-	vbuf.buffer_line[vbuf.vertex_pos_line].y = y;
-	vbuf.buffer_line[vbuf.vertex_pos_line].color = col;
-	vbuf.index_line [layer] [vbuf.index_pos_line [layer]] = vbuf.vertex_pos_line;
-	vbuf.vertex_pos_line++;
-	vbuf.index_pos_line[layer]++;
+	int m = vbuf.vertex_pos_line;
+	add_line_vertex(x, y, col);
+	add_line_vertex(xa, ya, col);
 
-
-	vbuf.buffer_line[vbuf.vertex_pos_line].x = xa;
-	vbuf.buffer_line[vbuf.vertex_pos_line].y = ya;
-	vbuf.buffer_line[vbuf.vertex_pos_line].color = col;
-	vbuf.index_line [layer] [vbuf.index_pos_line [layer]] = vbuf.vertex_pos_line;
-	vbuf.vertex_pos_line++;
-	vbuf.index_pos_line[layer]++;
+	construct_line(layer, m, m+1);
 
 }
 
@@ -509,8 +504,6 @@ void run_display(void)
 //  int block_size = BLOCK_SIZE_PIXELS;
   int screen_width_in_blocks = ((view.window_x_unzoomed / BLOCK_SIZE_PIXELS) / view.zoom) + 4;
   int screen_height_in_blocks = ((view.window_y_unzoomed / BLOCK_SIZE_PIXELS) / view.zoom) + 4;
-  int bx;
-  int by;
   int k;
   struct backblock_struct* backbl;
 
@@ -724,16 +717,13 @@ if (!settings.option[OPTION_NO_BACKGROUND])
   for (i = min_block_x; i < max_block_x; i ++)
   {
 
-   bx = i; //base_bx + i;
-
    check_vbuf();
 
 
    for (j = min_block_y; j < max_block_y; j ++)
    {
-    by = j;//base_by + j;
 
-    backbl = &w.backblock [bx] [by];
+    backbl = &w.backblock[i][j];
 /*
         bx2 = top_left_corner_x [3] + (BLOCK_SIZE_PIXELS * view.zoom * w.backblock_parallax [3]) * (i); //((i * BLOCK_SIZE_PIXELS) - camera_offset_x);
         by2 = top_left_corner_y [3] + (BLOCK_SIZE_PIXELS * view.zoom * w.backblock_parallax [3]) * (j); //((i * BLOCK_SIZE_PIXELS) - camera_offset_x);
@@ -862,16 +852,14 @@ if (!settings.option[OPTION_NO_BACKGROUND])
   for (i = min_block_x; i < max_block_x; i ++)
   {
 
-   bx = i; //base_bx + i;
 
    check_vbuf();
 
 
    for (j = min_block_y; j < max_block_y; j ++)
    {
-    by = j;//base_by + j;
 
-    backbl = &w.backblock [bx] [by];
+    backbl = &w.backblock[i][j];
 
     switch(backbl->backblock_type)
     {
@@ -5553,26 +5541,12 @@ far_dist = 12 + (shade);//*= 0.1;
   for (i = min_block_x; i < max_block_x; i ++)
   {
 
-   bx = i; //base_bx + i;
-
-
-   if (bx < 0)
-    continue;
-   if (bx >= w.blocks.x)
-    break;
-
    check_vbuf();
 
 //   int base_by = ((camera_y - camera_y_mod_block) / BLOCK_SIZE_PIXELS) - ((camera_y_zoomed - camera_y_zoomed_mod_block) / BLOCK_SIZE_PIXELS);
 
    for (j = min_block_y; j < max_block_y; j ++)
    {
-    by = j;//base_by + j;
-
-    if (by < 0)
-     continue;
-    if (by >= w.blocks.y)
-     break;
 
 //    fprintf(stdout, "[bx,by %i,%i]", bx, by);
 
@@ -5581,8 +5555,7 @@ far_dist = 12 + (shade);//*= 0.1;
 
 
 //    if (w.vision_area [bx] [by].vision_time < w.world_time)
-    if (//w.block[bx][by].vision_block_proximity_time == w.world_time
- 				w.vision_block[bx][by].clear_time == w.world_time)
+    if (w.vision_block[i][j].clear_time == w.world_time)
     {
 //    	int shadow_prop = w.world_time - w.vision_area [bx] [by].vision_time;
 
@@ -5602,8 +5575,8 @@ far_dist = 12 + (shade);//*= 0.1;
 			}
 					 else
 						{
-							if (w.vision_block[bx][by].proximity_time == w.world_time
-								&& w.vision_block[bx][by].clear_time != w.world_time)
+							if (w.vision_block[i][j].proximity_time == w.world_time
+								&& w.vision_block[i][j].clear_time != w.world_time)
 							{
 
 //									float block_size = 0.95;//BLOCK_SIZE_PIXELS * 0.6; //(w.block[bx][by].vision_block_proximity [k * 2 + l] - 108) * 0.2;//(float) ((w.block[bx][by].vision_block_proximity [k * 2 + l] - (BLOCK_SIZE_PIXELS * 6))) * view.zoom;
@@ -5616,7 +5589,7 @@ far_dist = 12 + (shade);//*= 0.1;
 //										block_size = 60;
 
 
-float alpha_ch = w.vision_block[bx][by].proximity;// * 0.1;
+float alpha_ch = w.vision_block[i][j].proximity;// * 0.1;
 if (alpha_ch > 255)
 	alpha_ch = 255;
 
@@ -8007,12 +7980,12 @@ static void start_bloom_ribbon(int layer, float centre_x, float centre_y, float 
 	bribstate.vertex_col [1] = edge_col;
 	bribstate.vertex_pos = 0;
 
-	bribstate.vertex_x [bribstate.vertex_pos] [0] = centre_x;
-	bribstate.vertex_y [bribstate.vertex_pos] [0] = centre_y;
-	bribstate.vertex_x [bribstate.vertex_pos] [1] = left_x;
-	bribstate.vertex_y [bribstate.vertex_pos] [1] = left_y;
-	bribstate.vertex_x [bribstate.vertex_pos] [2] = right_x;
-	bribstate.vertex_y [bribstate.vertex_pos] [2] = right_y;
+	bribstate.vertex [bribstate.vertex_pos] [0][0] = centre_x;
+	bribstate.vertex [bribstate.vertex_pos] [0][1] = centre_y;
+	bribstate.vertex [bribstate.vertex_pos] [1][0] = left_x;
+	bribstate.vertex [bribstate.vertex_pos] [1][1] = left_y;
+	bribstate.vertex [bribstate.vertex_pos] [2][0] = right_x;
+	bribstate.vertex [bribstate.vertex_pos] [2][1] = right_y;
 
 	bribstate.vertex_pos ++;
 
@@ -8028,12 +8001,12 @@ static void add_bloom_ribbon_vertices(float centre_x, float centre_y, float left
 // now just carry on as before. Might be a seam but it probably won't be too noticeable.
 	}
 
-	bribstate.vertex_x [bribstate.vertex_pos] [0] = centre_x;
-	bribstate.vertex_y [bribstate.vertex_pos] [0] = centre_y;
-	bribstate.vertex_x [bribstate.vertex_pos] [1] = left_x;
-	bribstate.vertex_y [bribstate.vertex_pos] [1] = left_y;
-	bribstate.vertex_x [bribstate.vertex_pos] [2] = right_x;
-	bribstate.vertex_y [bribstate.vertex_pos] [2] = right_y;
+	bribstate.vertex [bribstate.vertex_pos] [0][0] = centre_x;
+	bribstate.vertex [bribstate.vertex_pos] [0][1] = centre_y;
+	bribstate.vertex [bribstate.vertex_pos] [1][0] = left_x;
+	bribstate.vertex [bribstate.vertex_pos] [1][1] = left_y;
+	bribstate.vertex [bribstate.vertex_pos] [2][0] = right_x;
+	bribstate.vertex [bribstate.vertex_pos] [2][1] = right_y;
 
 	bribstate.vertex_pos ++;
 
@@ -8048,17 +8021,9 @@ static void finish_bloom_ribbon(void)
 
 	for (i = 0; i < bribstate.vertex_pos; ++i)
 	{
-		vbuf.buffer_triangle[m+3*i].x = bribstate.vertex_x [i] [0];
-		vbuf.buffer_triangle[m+3*i].y = bribstate.vertex_y [i] [0];
-		vbuf.buffer_triangle[m+3*i].color = bribstate.vertex_col [0];
-
-		vbuf.buffer_triangle[m+3*i+1].x = bribstate.vertex_x [i] [1];
-		vbuf.buffer_triangle[m+3*i+1].y = bribstate.vertex_y [i] [1];
-		vbuf.buffer_triangle[m+3*i+1].color = bribstate.vertex_col [1];
-
-		vbuf.buffer_triangle[m+3*i+2].x = bribstate.vertex_x [i] [2];
-		vbuf.buffer_triangle[m+3*i+2].y = bribstate.vertex_y [i] [2];
-		vbuf.buffer_triangle[m+3*i+2].color = bribstate.vertex_col [1];
+		add_tri_vertex(bribstate.vertex[i][0][0], bribstate.vertex[i][0][1], bribstate.vertex_col[0]);
+		add_tri_vertex(bribstate.vertex[i][1][0], bribstate.vertex[i][1][1], bribstate.vertex_col[1]);
+		add_tri_vertex(bribstate.vertex[i][2][0], bribstate.vertex[i][2][1], bribstate.vertex_col[1]);
 	}
 
 	for (i = 0; i < bribstate.vertex_pos - 1; ++i)
@@ -8071,8 +8036,6 @@ static void finish_bloom_ribbon(void)
 		construct_triangle(bribstate.layer, m+3*i+2, m+3*i+3, m+3*i+5);
 	}
 
-	vbuf.vertex_pos_triangle += 3*bribstate.vertex_pos;
-
 }
 /*
 static void add_bloom_ribbon_vertex_vector(float base_x, float base_y, float angle, float dist, ALLEGRO_COLOR vertex_col)
@@ -8082,28 +8045,17 @@ static void add_bloom_ribbon_vertex_vector(float base_x, float base_y, float ang
 
 static void add_bloom_ribbon_vertex(float x, float y, ALLEGRO_COLOR centre_col, ALLEGRO_COLOR edge_col)
 {
+ int m = vbuf.vertex_pos_triangle;
 
  ribstate.current_vertex_x [ribstate.next_vertex_pos] = x;
  ribstate.current_vertex_y [ribstate.next_vertex_pos] = y;
  ribstate.current_vertex_col [ribstate.next_vertex_pos] = vertex_col;
 
-				vbuf.buffer_triangle[vbuf.vertex_pos_triangle].x = ribstate.current_vertex_x [0];
-   	vbuf.buffer_triangle[vbuf.vertex_pos_triangle].y = ribstate.current_vertex_y [0];
-    vbuf.buffer_triangle[vbuf.vertex_pos_triangle].color = ribstate.current_vertex_col [0];
-    vbuf.index_triangle [ribstate.layer] [vbuf.index_pos_triangle [ribstate.layer]++] = vbuf.vertex_pos_triangle;
-    vbuf.vertex_pos_triangle++;
+ add_tri_vertex(ribstate.current_vertex_x [0], ribstate.current_vertex_y [0], ribstate.current_vertex_col [0]);
+ add_tri_vertex(ribstate.current_vertex_x [1], ribstate.current_vertex_y [1], ribstate.current_vertex_col [1]);
+ add_tri_vertex(ribstate.current_vertex_x [2], ribstate.current_vertex_y [2], ribstate.current_vertex_col [2]);
 
-				vbuf.buffer_triangle[vbuf.vertex_pos_triangle].x = ribstate.current_vertex_x [1];
-   	vbuf.buffer_triangle[vbuf.vertex_pos_triangle].y = ribstate.current_vertex_y [1];
-    vbuf.buffer_triangle[vbuf.vertex_pos_triangle].color = ribstate.current_vertex_col [1];
-    vbuf.index_triangle [ribstate.layer] [vbuf.index_pos_triangle [ribstate.layer]++] = vbuf.vertex_pos_triangle;
-    vbuf.vertex_pos_triangle++;
-
-				vbuf.buffer_triangle[vbuf.vertex_pos_triangle].x = ribstate.current_vertex_x [2];
-   	vbuf.buffer_triangle[vbuf.vertex_pos_triangle].y = ribstate.current_vertex_y [2];
-    vbuf.buffer_triangle[vbuf.vertex_pos_triangle].color = ribstate.current_vertex_col [2];
-    vbuf.index_triangle [ribstate.layer] [vbuf.index_pos_triangle [ribstate.layer]++] = vbuf.vertex_pos_triangle;
-    vbuf.vertex_pos_triangle++;
+ construct_triangle(ribstate.layer, m, m+1, m+2);
 
   ribstate.next_vertex_pos ++;
 
@@ -8428,12 +8380,85 @@ void draw_stream_beam(float x1, float by1, float x2, float y2, int col, int stat
 }
 */
 
+void draw_stream_triangles(int layer, float x1, float by1, float x2, float y2,
+						   float stream_dir_x, float stream_dir_y,
+						   float beam_base_flash_size, float beam_width, float beam_end_flash_size,
+						   ALLEGRO_COLOR centre_col, ALLEGRO_COLOR edge_col)
+{
+	float x, y;
 
+	// front (not used directly
+	float base_front_x = x1 + stream_dir_x * beam_base_flash_size;
+	float base_front_y = by1 + stream_dir_y * beam_base_flash_size;
+	float end_front_x = x2 - stream_dir_x * beam_end_flash_size;
+	float end_front_y = y2 - stream_dir_y * beam_end_flash_size;
+	int m = vbuf.vertex_pos_triangle;
+// back
+	x = x1 - stream_dir_x * beam_base_flash_size;
+	y = by1 - stream_dir_y * beam_base_flash_size;
+	add_tri_vertex(x, y, edge_col);
+// right
+	x = x1 - stream_dir_y * beam_base_flash_size;
+	y = by1 + stream_dir_x * beam_base_flash_size;
+	add_tri_vertex(x, y, edge_col);
+// right-front (beam base)
+	x = base_front_x - stream_dir_y * beam_width;
+	y = base_front_y + stream_dir_x * beam_width;
+	add_tri_vertex(x, y, edge_col);
+// left-front (beam base)
+	x = base_front_x + stream_dir_y * beam_width;
+	y = base_front_y - stream_dir_x * beam_width;
+	add_tri_vertex(x, y, edge_col);
+// left
+	x = x1 + stream_dir_y * beam_base_flash_size;
+	y = by1 - stream_dir_x * beam_base_flash_size;
+	add_tri_vertex(x, y, edge_col);
+
+
+// other end:
+// beam end base right
+	x = end_front_x + stream_dir_y * beam_width;
+	y = end_front_y - stream_dir_x * beam_width;
+	add_tri_vertex(x, y, edge_col);
+// beam end base left
+	x = end_front_x - stream_dir_y * beam_width;
+	y = end_front_y + stream_dir_x * beam_width;
+	add_tri_vertex(x, y, edge_col);
+// left
+	x = x2 - stream_dir_y * beam_end_flash_size;
+	y = y2 + stream_dir_x * beam_end_flash_size;
+	add_tri_vertex(x, y, edge_col);
+// far end
+	x = x2 + stream_dir_x * beam_end_flash_size;
+	y = y2 + stream_dir_y * beam_end_flash_size;
+	add_tri_vertex(x, y, edge_col);
+// right
+	x = x2 + stream_dir_y * beam_end_flash_size;
+	y = y2 - stream_dir_x * beam_end_flash_size;
+	add_tri_vertex(x, y, edge_col);
+
+	add_tri_vertex(x1, by1, centre_col);
+	add_tri_vertex(x2, y2, centre_col);
+
+	construct_triangle(layer, m+10, m+2, m+1);
+	construct_triangle(layer, m+10, m+1, m);
+	construct_triangle(layer, m+10, m, m+4);
+	construct_triangle(layer, m+10, m+4, m+3);
+	construct_triangle(layer, m+10, m+3, m+11);
+	construct_triangle(layer, m+11, m+3, m+5);
+	construct_triangle(layer, m+11, m+5, m+9);
+	construct_triangle(layer, m+11, m+9, m+8);
+	construct_triangle(layer, m+11, m+8, m+7);
+	construct_triangle(layer, m+11, m+7, m+6);
+	construct_triangle(layer, m+11, m+6, m+10);
+	construct_triangle(layer, m+6, m+2, m+10);
+}
 
 void draw_stream_beam(float x1, float by1, float x2, float y2, int col, int status, int counter, int hit)
 {
 
- float stream_angle = atan2(y2 - by1, x2 - x1);
+ const float stream_length = hypot(y2 - by1, x2 - x1);
+ const float stream_dir_x = (x2 - x1) / stream_length, stream_dir_y = (y2 - by1) / stream_length;
 
 // first draw the outer (non-damaging) part of the stream:
 
@@ -8472,48 +8497,7 @@ void draw_stream_beam(float x1, float by1, float x2, float y2, int col, int stat
  if (hit)
 		beam_end_flash_size = 9 * proportion * view.zoom;
 
-// back
- vertex_list [0] [0] = x1 + cos(stream_angle + PI) * beam_base_flash_size;
- vertex_list [0] [1] = by1 + sin(stream_angle + PI) * beam_base_flash_size;
-// right
- vertex_list [1] [0] = x1 + cos(stream_angle + PI/2) * beam_base_flash_size;
- vertex_list [1] [1] = by1 + sin(stream_angle + PI/2) * beam_base_flash_size;
-// left
- vertex_list [4] [0] = x1 + cos(stream_angle - PI/2) * beam_base_flash_size;
- vertex_list [4] [1] = by1 + sin(stream_angle - PI/2) * beam_base_flash_size;
-// front (not used directly
-	float base_front_x = x1 + cos(stream_angle) * beam_base_flash_size;
-	float base_front_y = by1 + sin(stream_angle) * beam_base_flash_size;
-
-// right-front (beam base)
- vertex_list [2] [0] = base_front_x + cos(stream_angle + PI/2) * beam_width;
- vertex_list [2] [1] = base_front_y + sin(stream_angle + PI/2) * beam_width;
-// left-front (beam base)
- vertex_list [3] [0] = base_front_x + cos(stream_angle - PI/2) * beam_width;
- vertex_list [3] [1] = base_front_y + sin(stream_angle - PI/2) * beam_width;
-
- float reverse_stream_angle = stream_angle + PI;
-
-	float end_front_x = x2 + cos(reverse_stream_angle) * beam_end_flash_size;
-	float end_front_y = y2 + sin(reverse_stream_angle) * beam_end_flash_size;
-// other end:
-// beam end base right
- vertex_list [5] [0] = end_front_x + cos(reverse_stream_angle + PI/2) * beam_width;
- vertex_list [5] [1] = end_front_y + sin(reverse_stream_angle + PI/2) * beam_width;
-// beam end base left
- vertex_list [6] [0] = end_front_x + cos(reverse_stream_angle - PI/2) * beam_width;
- vertex_list [6] [1] = end_front_y + sin(reverse_stream_angle - PI/2) * beam_width;
-// left
- vertex_list [7] [0] = x2 + cos(reverse_stream_angle - PI/2) * beam_end_flash_size;
- vertex_list [7] [1] = y2 + sin(reverse_stream_angle - PI/2) * beam_end_flash_size;
-// far end
- vertex_list [8] [0] = x2 + cos(reverse_stream_angle + PI) * beam_end_flash_size;
- vertex_list [8] [1] = y2 + sin(reverse_stream_angle + PI) * beam_end_flash_size;
-// right
- vertex_list [9] [0] = x2 + cos(reverse_stream_angle + PI/2) * beam_end_flash_size;
- vertex_list [9] [1] = y2 + sin(reverse_stream_angle + PI/2) * beam_end_flash_size;
-
- draw_beam_triangles(1, x1, by1, x2, y2, colours.packet [col] [shade]);
+ draw_stream_triangles(1, x1, by1, x2, y2, stream_dir_x, stream_dir_y, beam_base_flash_size, beam_width, beam_end_flash_size, colours.packet [col] [shade], colours.packet [col] [shade]);
 
 // bloom
 
@@ -8523,50 +8507,7 @@ void draw_stream_beam(float x1, float by1, float x2, float y2, int col, int stat
  float bloom_base_size = beam_base_flash_size * 5;
  float bloom_width = beam_width * 5;
  float bloom_end_size = beam_end_flash_size * 5;
-
-// back
- vertex_list [0] [0] = x1 + cos(stream_angle + PI) * bloom_base_size;
- vertex_list [0] [1] = by1 + sin(stream_angle + PI) * bloom_base_size;
-// right
- vertex_list [1] [0] = x1 + cos(stream_angle + PI/2) * bloom_base_size;
- vertex_list [1] [1] = by1 + sin(stream_angle + PI/2) * bloom_base_size;
-// left
- vertex_list [4] [0] = x1 + cos(stream_angle - PI/2) * bloom_base_size;
- vertex_list [4] [1] = by1 + sin(stream_angle - PI/2) * bloom_base_size;
-// front (not used directly
-	base_front_x = x1 + cos(stream_angle) * bloom_base_size;
-	base_front_y = by1 + sin(stream_angle) * bloom_base_size;
-
-// right-front (beam base)
- vertex_list [2] [0] = base_front_x + cos(stream_angle + PI/2) * bloom_width;
- vertex_list [2] [1] = base_front_y + sin(stream_angle + PI/2) * bloom_width;
-// left-front (beam base)
- vertex_list [3] [0] = base_front_x + cos(stream_angle - PI/2) * bloom_width;
- vertex_list [3] [1] = base_front_y + sin(stream_angle - PI/2) * bloom_width;
-
-// float reverse_stream_angle = stream_angle + PI;
-
-	end_front_x = x2 + cos(reverse_stream_angle) * bloom_end_size;
-	end_front_y = y2 + sin(reverse_stream_angle) * bloom_end_size;
-// other end:
-// beam end base right
- vertex_list [5] [0] = end_front_x + cos(reverse_stream_angle + PI/2) * bloom_width;
- vertex_list [5] [1] = end_front_y + sin(reverse_stream_angle + PI/2) * bloom_width;
-// beam end base left
- vertex_list [6] [0] = end_front_x + cos(reverse_stream_angle - PI/2) * bloom_width;
- vertex_list [6] [1] = end_front_y + sin(reverse_stream_angle - PI/2) * bloom_width;
-// left
- vertex_list [7] [0] = x2 + cos(reverse_stream_angle - PI/2) * bloom_end_size;
- vertex_list [7] [1] = y2 + sin(reverse_stream_angle - PI/2) * bloom_end_size;
-// far end
- vertex_list [8] [0] = x2 + cos(reverse_stream_angle + PI) * bloom_end_size;
- vertex_list [8] [1] = y2 + sin(reverse_stream_angle + PI) * bloom_end_size;
-// right
- vertex_list [9] [0] = x2 + cos(reverse_stream_angle + PI/2) * bloom_end_size;
- vertex_list [9] [1] = y2 + sin(reverse_stream_angle + PI/2) * bloom_end_size;
-
-
- draw_beam_bloom_triangles(2, x1, by1, x2, y2, colours.bloom_centre [col] [shade], colours.bloom_edge [col] [shade]);
+draw_stream_triangles(2, x1, by1, x2, y2, stream_dir_x, stream_dir_y, bloom_base_size, bloom_width, bloom_end_size, colours.bloom_centre [col] [shade], colours.bloom_edge [col] [shade]);
 
 // inner stream
 
@@ -8583,48 +8524,7 @@ void draw_stream_beam(float x1, float by1, float x2, float y2, int col, int stat
  if (hit)
 		beam_end_flash_size = 5 * proportion * view.zoom;
 
-// back
- vertex_list [0] [0] = x1 + cos(stream_angle + PI) * beam_base_flash_size;
- vertex_list [0] [1] = by1 + sin(stream_angle + PI) * beam_base_flash_size;
-// right
- vertex_list [1] [0] = x1 + cos(stream_angle + PI/2) * beam_base_flash_size;
- vertex_list [1] [1] = by1 + sin(stream_angle + PI/2) * beam_base_flash_size;
-// left
- vertex_list [4] [0] = x1 + cos(stream_angle - PI/2) * beam_base_flash_size;
- vertex_list [4] [1] = by1 + sin(stream_angle - PI/2) * beam_base_flash_size;
-// front (not used directly
-	base_front_x = x1 + cos(stream_angle) * beam_base_flash_size;
-	base_front_y = by1 + sin(stream_angle) * beam_base_flash_size;
-
-// right-front (beam base)
- vertex_list [2] [0] = base_front_x + cos(stream_angle + PI/2) * beam_width;
- vertex_list [2] [1] = base_front_y + sin(stream_angle + PI/2) * beam_width;
-// left-front (beam base)
- vertex_list [3] [0] = base_front_x + cos(stream_angle - PI/2) * beam_width;
- vertex_list [3] [1] = base_front_y + sin(stream_angle - PI/2) * beam_width;
-
-// float reverse_stream_angle = stream_angle + PI;
-
-	end_front_x = x2 + cos(reverse_stream_angle) * beam_end_flash_size;
-	end_front_y = y2 + sin(reverse_stream_angle) * beam_end_flash_size;
-// other end:
-// beam end base right
- vertex_list [5] [0] = end_front_x + cos(reverse_stream_angle + PI/2) * beam_width;
- vertex_list [5] [1] = end_front_y + sin(reverse_stream_angle + PI/2) * beam_width;
-// beam end base left
- vertex_list [6] [0] = end_front_x + cos(reverse_stream_angle - PI/2) * beam_width;
- vertex_list [6] [1] = end_front_y + sin(reverse_stream_angle - PI/2) * beam_width;
-// left
- vertex_list [7] [0] = x2 + cos(reverse_stream_angle - PI/2) * beam_end_flash_size;
- vertex_list [7] [1] = y2 + sin(reverse_stream_angle - PI/2) * beam_end_flash_size;
-// far end
- vertex_list [8] [0] = x2 + cos(reverse_stream_angle + PI) * beam_end_flash_size;
- vertex_list [8] [1] = y2 + sin(reverse_stream_angle + PI) * beam_end_flash_size;
-// right
- vertex_list [9] [0] = x2 + cos(reverse_stream_angle + PI/2) * beam_end_flash_size;
- vertex_list [9] [1] = y2 + sin(reverse_stream_angle + PI/2) * beam_end_flash_size;
-
- draw_beam_triangles(2, x1, by1, x2, y2, colours.packet [col] [shade]);
+ draw_stream_triangles(2, x1, by1, x2, y2, stream_dir_x, stream_dir_y, beam_base_flash_size, beam_width, beam_end_flash_size, colours.packet [col] [shade], colours.packet [col] [shade]);
 
 // finally, bloom:
 
@@ -8637,7 +8537,8 @@ void draw_stream_beam(float x1, float by1, float x2, float y2, int col, int stat
 void draw_slice_beam(float x1, float by1, float x2, float y2, int col, int time_since_firing, int hit)
 {
 
- float stream_angle = atan2(y2 - by1, x2 - x1);
+ const float stream_length = hypot(y2 - by1, x2 - x1);
+ const float stream_dir_x = (x2 - x1) / stream_length, stream_dir_y = (y2 - by1) / stream_length;
 
 // first draw the outer (non-damaging) part of the stream:
 
@@ -8702,53 +8603,11 @@ void draw_slice_beam(float x1, float by1, float x2, float y2, int col, int time_
 
  if (hit)
 		beam_end_flash_size = 12 * proportion * view.zoom;
-
-// back
- vertex_list [0] [0] = x1 + cos(stream_angle + PI) * beam_base_flash_size;
- vertex_list [0] [1] = by1 + sin(stream_angle + PI) * beam_base_flash_size;
-// right
- vertex_list [1] [0] = x1 + cos(stream_angle + PI/2) * beam_base_flash_size;
- vertex_list [1] [1] = by1 + sin(stream_angle + PI/2) * beam_base_flash_size;
-// left
- vertex_list [4] [0] = x1 + cos(stream_angle - PI/2) * beam_base_flash_size;
- vertex_list [4] [1] = by1 + sin(stream_angle - PI/2) * beam_base_flash_size;
-// front (not used directly
-	float base_front_x = x1 + cos(stream_angle) * beam_base_flash_size;
-	float base_front_y = by1 + sin(stream_angle) * beam_base_flash_size;
-
-// right-front (beam base)
- vertex_list [2] [0] = base_front_x + cos(stream_angle + PI/2) * beam_width;
- vertex_list [2] [1] = base_front_y + sin(stream_angle + PI/2) * beam_width;
-// left-front (beam base)
- vertex_list [3] [0] = base_front_x + cos(stream_angle - PI/2) * beam_width;
- vertex_list [3] [1] = base_front_y + sin(stream_angle - PI/2) * beam_width;
-
- float reverse_stream_angle = stream_angle + PI;
-
-	float end_front_x = x2 + cos(reverse_stream_angle) * beam_end_flash_size;
-	float end_front_y = y2 + sin(reverse_stream_angle) * beam_end_flash_size;
-// other end:
-// beam end base right
- vertex_list [5] [0] = end_front_x + cos(reverse_stream_angle + PI/2) * beam_width;
- vertex_list [5] [1] = end_front_y + sin(reverse_stream_angle + PI/2) * beam_width;
-// beam end base left
- vertex_list [6] [0] = end_front_x + cos(reverse_stream_angle - PI/2) * beam_width;
- vertex_list [6] [1] = end_front_y + sin(reverse_stream_angle - PI/2) * beam_width;
-// left
- vertex_list [7] [0] = x2 + cos(reverse_stream_angle - PI/2) * beam_end_flash_size;
- vertex_list [7] [1] = y2 + sin(reverse_stream_angle - PI/2) * beam_end_flash_size;
-// far end
- vertex_list [8] [0] = x2 + cos(reverse_stream_angle + PI) * beam_end_flash_size;
- vertex_list [8] [1] = y2 + sin(reverse_stream_angle + PI) * beam_end_flash_size;
-// right
- vertex_list [9] [0] = x2 + cos(reverse_stream_angle + PI/2) * beam_end_flash_size;
- vertex_list [9] [1] = y2 + sin(reverse_stream_angle + PI/2) * beam_end_flash_size;
-
  if (fade_time <= 0)
-  draw_beam_triangles(1, x1, by1, x2, y2, colours.packet [col] [shade_end / 2]);
-   else
-    draw_fade_slice_triangles(1, x1, by1, x2, y2, colours.packet [col] [shade_end / 2], colours.packet [col] [shade_base / 2]);
-//    draw_fade_slice_triangles(layer, x1, by1, float x2, float y2, ALLEGRO_COLOR stream_col, ALLEGRO_COLOR base_col)
+  draw_stream_triangles(1, x1, by1, x2, y2, stream_dir_x, stream_dir_y, beam_base_flash_size, beam_width, beam_end_flash_size, colours.packet [col] [shade_end / 2], colours.packet [col] [shade_end / 2]);
+ else
+  draw_fade_slice_triangles(1, x1, by1, x2, y2, stream_dir_x, stream_dir_y, beam_base_flash_size, beam_width, beam_end_flash_size, colours.packet [col] [shade_end / 2], colours.packet [col] [shade_base / 2]);
+
 // bloom
 
 // bloom_circle(1, x1, by1, colours.bloom_centre [col] [shade], colours.bloom_edge [col] [0], beam_base_flash_size * 10);
@@ -8770,49 +8629,7 @@ void draw_slice_beam(float x1, float by1, float x2, float y2, int col, int time_
  float bloom_width = beam_width * bloom_proportion * 5;
  float bloom_end_size = beam_end_flash_size * bloom_proportion * 5;
 
-// back
- vertex_list [0] [0] = x1 + cos(stream_angle + PI) * bloom_base_size;
- vertex_list [0] [1] = by1 + sin(stream_angle + PI) * bloom_base_size;
-// right
- vertex_list [1] [0] = x1 + cos(stream_angle + PI/2) * bloom_base_size;
- vertex_list [1] [1] = by1 + sin(stream_angle + PI/2) * bloom_base_size;
-// left
- vertex_list [4] [0] = x1 + cos(stream_angle - PI/2) * bloom_base_size;
- vertex_list [4] [1] = by1 + sin(stream_angle - PI/2) * bloom_base_size;
-// front (not used directly
-	base_front_x = x1 + cos(stream_angle) * bloom_base_size;
-	base_front_y = by1 + sin(stream_angle) * bloom_base_size;
-
-// right-front (beam base)
- vertex_list [2] [0] = base_front_x + cos(stream_angle + PI/2) * bloom_width;
- vertex_list [2] [1] = base_front_y + sin(stream_angle + PI/2) * bloom_width;
-// left-front (beam base)
- vertex_list [3] [0] = base_front_x + cos(stream_angle - PI/2) * bloom_width;
- vertex_list [3] [1] = base_front_y + sin(stream_angle - PI/2) * bloom_width;
-
-// float reverse_stream_angle = stream_angle + PI;
-
-	end_front_x = x2 + cos(reverse_stream_angle) * bloom_end_size;
-	end_front_y = y2 + sin(reverse_stream_angle) * bloom_end_size;
-// other end:
-// beam end base right
- vertex_list [5] [0] = end_front_x + cos(reverse_stream_angle + PI/2) * bloom_width;
- vertex_list [5] [1] = end_front_y + sin(reverse_stream_angle + PI/2) * bloom_width;
-// beam end base left
- vertex_list [6] [0] = end_front_x + cos(reverse_stream_angle - PI/2) * bloom_width;
- vertex_list [6] [1] = end_front_y + sin(reverse_stream_angle - PI/2) * bloom_width;
-// left
- vertex_list [7] [0] = x2 + cos(reverse_stream_angle - PI/2) * bloom_end_size;
- vertex_list [7] [1] = y2 + sin(reverse_stream_angle - PI/2) * bloom_end_size;
-// far end
- vertex_list [8] [0] = x2 + cos(reverse_stream_angle + PI) * bloom_end_size;
- vertex_list [8] [1] = y2 + sin(reverse_stream_angle + PI) * bloom_end_size;
-// right
- vertex_list [9] [0] = x2 + cos(reverse_stream_angle + PI/2) * bloom_end_size;
- vertex_list [9] [1] = y2 + sin(reverse_stream_angle + PI/2) * bloom_end_size;
-
-
- draw_beam_bloom_triangles(2, x1, by1, x2, y2, colours.bloom_centre [col] [shade_base], colours.bloom_edge [col] [shade_base]);
+ draw_stream_triangles(2, x1, by1, x2, y2, stream_dir_x, stream_dir_y, bloom_base_size, bloom_width, bloom_end_size, colours.bloom_centre [col] [shade_base], colours.bloom_edge [col] [shade_base]);
 
 // inner stream
 /*
@@ -8832,51 +8649,10 @@ void draw_slice_beam(float x1, float by1, float x2, float y2, int col, int time_
  if (hit)
 		beam_end_flash_size = 8 * proportion * view.zoom;
 
-// back
- vertex_list [0] [0] = x1 + cos(stream_angle + PI) * beam_base_flash_size;
- vertex_list [0] [1] = by1 + sin(stream_angle + PI) * beam_base_flash_size;
-// right
- vertex_list [1] [0] = x1 + cos(stream_angle + PI/2) * beam_base_flash_size;
- vertex_list [1] [1] = by1 + sin(stream_angle + PI/2) * beam_base_flash_size;
-// left
- vertex_list [4] [0] = x1 + cos(stream_angle - PI/2) * beam_base_flash_size;
- vertex_list [4] [1] = by1 + sin(stream_angle - PI/2) * beam_base_flash_size;
-// front (not used directly
-	base_front_x = x1 + cos(stream_angle) * beam_base_flash_size;
-	base_front_y = by1 + sin(stream_angle) * beam_base_flash_size;
-
-// right-front (beam base)
- vertex_list [2] [0] = base_front_x + cos(stream_angle + PI/2) * beam_width;
- vertex_list [2] [1] = base_front_y + sin(stream_angle + PI/2) * beam_width;
-// left-front (beam base)
- vertex_list [3] [0] = base_front_x + cos(stream_angle - PI/2) * beam_width;
- vertex_list [3] [1] = base_front_y + sin(stream_angle - PI/2) * beam_width;
-
-// float reverse_stream_angle = stream_angle + PI;
-
-	end_front_x = x2 + cos(reverse_stream_angle) * beam_end_flash_size;
-	end_front_y = y2 + sin(reverse_stream_angle) * beam_end_flash_size;
-// other end:
-// beam end base right
- vertex_list [5] [0] = end_front_x + cos(reverse_stream_angle + PI/2) * beam_width;
- vertex_list [5] [1] = end_front_y + sin(reverse_stream_angle + PI/2) * beam_width;
-// beam end base left
- vertex_list [6] [0] = end_front_x + cos(reverse_stream_angle - PI/2) * beam_width;
- vertex_list [6] [1] = end_front_y + sin(reverse_stream_angle - PI/2) * beam_width;
-// left
- vertex_list [7] [0] = x2 + cos(reverse_stream_angle - PI/2) * beam_end_flash_size;
- vertex_list [7] [1] = y2 + sin(reverse_stream_angle - PI/2) * beam_end_flash_size;
-// far end
- vertex_list [8] [0] = x2 + cos(reverse_stream_angle + PI) * beam_end_flash_size;
- vertex_list [8] [1] = y2 + sin(reverse_stream_angle + PI) * beam_end_flash_size;
-// right
- vertex_list [9] [0] = x2 + cos(reverse_stream_angle + PI/2) * beam_end_flash_size;
- vertex_list [9] [1] = y2 + sin(reverse_stream_angle + PI/2) * beam_end_flash_size;
-
  if (fade_time <= 0)
-  draw_beam_triangles(2, x1, by1, x2, y2, colours.packet [col] [shade_end]);
-   else
-    draw_fade_slice_triangles(1, x1, by1, x2, y2, colours.packet [col] [shade_end], colours.packet [col] [shade_base]);
+  draw_stream_triangles(2, x1, by1, x2, y2, stream_dir_x, stream_dir_y, beam_base_flash_size, beam_width, beam_end_flash_size, colours.packet [col] [shade_end], colours.packet [col] [shade_end]);
+ else
+  draw_fade_slice_triangles(1, x1, by1, x2, y2, stream_dir_x, stream_dir_y, beam_base_flash_size, beam_width, beam_end_flash_size, colours.packet [col] [shade_end], colours.packet [col] [shade_base]);
 
 // finally, bloom:
 
@@ -8886,49 +8662,62 @@ void draw_slice_beam(float x1, float by1, float x2, float y2, int col, int time_
 
 
 
-
-
-
-
-static void draw_beam_triangles(int layer, float x1, float by1, float x2, float y2, ALLEGRO_COLOR stream_col)
+static void draw_fade_slice_triangles(int layer, float x1, float by1, float x2, float y2,
+									  float stream_dir_x, float stream_dir_y,
+									  float beam_base_flash_size, float beam_width, float beam_end_flash_size,
+									  ALLEGRO_COLOR stream_col, ALLEGRO_COLOR base_col)
 {
-	int i, m = vbuf.vertex_pos_triangle;
+	float x, y;
 
-	for (i = 0; i < 10; ++i)
-		add_tri_vertex(vertex_list[i][0], vertex_list[i][1], stream_col);
+	// front (not used directly
+	float base_front_x = x1 + stream_dir_x * beam_base_flash_size;
+	float base_front_y = by1 + stream_dir_y * beam_base_flash_size;
+	float end_front_x = x2 - stream_dir_x * beam_end_flash_size;
+	float end_front_y = y2 - stream_dir_y * beam_end_flash_size;
+	int m = vbuf.vertex_pos_triangle;
+// back
+	x = x1 - stream_dir_x * beam_base_flash_size;
+	y = by1 - stream_dir_y * beam_base_flash_size;
+	add_tri_vertex(x, y, base_col);
+// right
+	x = x1 - stream_dir_y * beam_base_flash_size;
+	y = by1 + stream_dir_x * beam_base_flash_size;
+	add_tri_vertex(x, y, base_col);
+// right-front (beam base)
+	x = base_front_x - stream_dir_y * beam_width;
+	y = base_front_y + stream_dir_x * beam_width;
+	add_tri_vertex(x, y, base_col);
+// left-front (beam base)
+	x = base_front_x + stream_dir_y * beam_width;
+	y = base_front_y - stream_dir_x * beam_width;
+	add_tri_vertex(x, y, base_col);
+// left
+	x = x1 + stream_dir_y * beam_base_flash_size;
+	y = by1 - stream_dir_x * beam_base_flash_size;
+	add_tri_vertex(x, y, base_col);
 
-	add_tri_vertex(x1, by1, stream_col);
-	add_tri_vertex(x2, y2, stream_col);
 
-	construct_triangle(layer, m+10, m+3, m+4);
-	construct_triangle(layer, m+10, m+4, m);
-	construct_triangle(layer, m+10, m, m+1);
-	construct_triangle(layer, m+10, m+1, m+2);
-	construct_triangle(layer, m+10, m+2, m+3);
-	construct_triangle(layer, m+2, m+3, m+5);
-	construct_triangle(layer, m+2, m+5, m+6);
-
-// far side
-	construct_triangle(layer, m+11, m+5, m+6);
-	construct_triangle(layer, m+11, m+6, m+7);
-	construct_triangle(layer, m+11, m+7, m+8);
-	construct_triangle(layer, m+11, m+8, m+9);
-	construct_triangle(layer, m+11, m+9, m+5);
-
-//	add_line(2, x1, by1, x2, y2, colours.base_trans [col] [8] [2]);
-
-}
-
-
-static void draw_fade_slice_triangles(int layer, float x1, float by1, float x2, float y2, ALLEGRO_COLOR stream_col, ALLEGRO_COLOR base_col)
-{
-	int i, m = vbuf.vertex_pos_triangle;
-
-	for (i = 0; i < 5; ++i)
-		add_tri_vertex(vertex_list[i][0], vertex_list[i][1], base_col);
-
-	for (i = 5; i < 10; ++i)
-		add_tri_vertex(vertex_list[i][0], vertex_list[i][1], stream_col);
+// other end:
+// beam end base right
+	x = end_front_x + stream_dir_y * beam_width;
+	y = end_front_y - stream_dir_x * beam_width;
+	add_tri_vertex(x, y, stream_col);
+// beam end base left
+	x = end_front_x - stream_dir_y * beam_width;
+	y = end_front_y + stream_dir_x * beam_width;
+	add_tri_vertex(x, y, stream_col);
+// left
+	x = x2 - stream_dir_y * beam_end_flash_size;
+	y = y2 + stream_dir_x * beam_end_flash_size;
+	add_tri_vertex(x, y, stream_col);
+// far end
+	x = x2 + stream_dir_x * beam_end_flash_size;
+	y = y2 + stream_dir_y * beam_end_flash_size;
+	add_tri_vertex(x, y, stream_col);
+// right
+	x = x2 + stream_dir_y * beam_end_flash_size;
+	y = y2 - stream_dir_x * beam_end_flash_size;
+	add_tri_vertex(x, y, stream_col);
 
 	add_tri_vertex(x1, by1, base_col);
 	add_tri_vertex(x2, y2, stream_col);
@@ -8968,30 +8757,6 @@ end of beam
  8 far end
  9 right
 */
-static void draw_beam_bloom_triangles(int layer, float x1, float by1, float x2, float y2, ALLEGRO_COLOR centre_col, ALLEGRO_COLOR edge_col)
-{
-	int i, m = vbuf.vertex_pos_triangle;
-
-	for (i = 0; i < 10; ++i)
-		add_tri_vertex(vertex_list[i][0], vertex_list[i][1], edge_col);
-
-	add_tri_vertex(x1, by1, centre_col);
-	add_tri_vertex(x2, y2, centre_col);
-
-	construct_triangle(layer, m+10, m+2, m+1);
-	construct_triangle(layer, m+10, m+1, m);
-	construct_triangle(layer, m+10, m, m+4);
-	construct_triangle(layer, m+10, m+4, m+3);
-	construct_triangle(layer, m+10, m+3, m+11);
-	construct_triangle(layer, m+11, m+3, m+5);
-	construct_triangle(layer, m+11, m+5, m+9);
-	construct_triangle(layer, m+11, m+9, m+8);
-	construct_triangle(layer, m+11, m+8, m+7);
-	construct_triangle(layer, m+11, m+7, m+6);
-	construct_triangle(layer, m+11, m+6, m+10);
-	construct_triangle(layer, m+6, m+2, m+10);
-
-}
 
 /*
 // Is this actually used?
@@ -10826,26 +10591,18 @@ void draw_proc_outline(float x, float y, al_fixed angle, int shape, float scale,
 	if (vertex_list_index >= dsh->outline_vertices)
 		vertex_list_index = 0;
 
-	n = vbuf.index_pos_triangle[layer];
-
 	for (i = 1; i < dsh->outline_vertices - 1; ++i)
 	{
-		for (j = 0; j < 3; ++j)
-		{
-			vbuf.index_triangle [layer] [n++] = m + dsh->outline_base_vertex;
-			vbuf.index_triangle [layer] [n++] = m + vertex_list_index;
+		int next_index = vertex_list_index + 1;
+		if (next_index >= dsh->outline_vertices)
+			next_index = 0;
 
-			if (vertex_list_index >= dsh->outline_vertices - 1)
-				vbuf.index_triangle [layer] [n++] = m + 0;
-			else
-				vbuf.index_triangle [layer] [n++] = m + vertex_list_index + 1;
-		}
-		vertex_list_index ++;
-		if (vertex_list_index >= dsh->outline_vertices)
-			vertex_list_index = 0;
+		for (j = 0; j < 3; ++j)
+			construct_triangle(layer, m + dsh->outline_base_vertex, m + vertex_list_index, m + next_index);
+
+		vertex_list_index = next_index;
 	}
 
-	vbuf.index_pos_triangle[layer] = n;
 
   check_vbuf();
 
@@ -10860,12 +10617,12 @@ static void draw_jaggy_proc_outline(int layer, float x, float y, al_fixed angle,
  float f_angle;
  struct dshape_struct* dsh = &dshape [shape];
 
- int i, j;
+ int i, j, m = vbuf.vertex_pos_triangle;
+ // int l = vbuf.vertex_pos_line;
 
  f_angle = fixed_to_radians(angle);
 
- float vertex_list_x [OUTLINE_VERTICES + 1]; // extra entry at the end is for 0
- float vertex_list_y [OUTLINE_VERTICES + 1];
+ float _x, _y;
 
 	float vertex_jagginess;
 
@@ -10876,30 +10633,16 @@ static void draw_jaggy_proc_outline(int layer, float x, float y, al_fixed angle,
 		 vertex_jagginess = (10 + drand(jagginess, angle)) * 0.1;
 		  else
 					vertex_jagginess = 1;
-		vertex_list_x [i] = x + fxpart(f_angle + dsh->outline_vertex_angle [i], dsh->outline_vertex_dist [i] * vertex_jagginess) * zoom * scale;
-		vertex_list_y [i] = y + fypart(f_angle + dsh->outline_vertex_angle [i], dsh->outline_vertex_dist [i] * vertex_jagginess) * zoom * scale;
+		_x = x + fxpart(f_angle + dsh->outline_vertex_angle [i], dsh->outline_vertex_dist [i] * vertex_jagginess) * zoom * scale;
+		_y = y + fypart(f_angle + dsh->outline_vertex_angle [i], dsh->outline_vertex_dist [i] * vertex_jagginess) * zoom * scale;
+		add_tri_vertex(_x, _y, fill_col);
+		// add_line_vertex(_x, _y, edge_col);
 	}
-
-	vertex_list_x [dsh->outline_vertices] = vertex_list_x [0];
-	vertex_list_y [dsh->outline_vertices] = vertex_list_y [0];
 
 /*
   for (i = 0; i < dsh->outline_vertices; i ++)
-		{
-
-	  vbuf.buffer_line[vbuf.vertex_pos_line].x = vertex_list_x [i];
-	  vbuf.buffer_line[vbuf.vertex_pos_line].y = vertex_list_y [i];
-   vbuf.buffer_line[vbuf.vertex_pos_line].color = edge_col;
-   vbuf.index_line [layer] [vbuf.index_pos_line [layer]++] = vbuf.vertex_pos_line;
-   vbuf.vertex_pos_line++;
-
-	  vbuf.buffer_line[vbuf.vertex_pos_line].x = vertex_list_x [i + 1];
-	  vbuf.buffer_line[vbuf.vertex_pos_line].y = vertex_list_y [i + 1];
-   vbuf.buffer_line[vbuf.vertex_pos_line].color = edge_col;
-   vbuf.index_line [layer] [vbuf.index_pos_line [layer]++] = vbuf.vertex_pos_line;
-   vbuf.vertex_pos_line++;
-
-		}
+			construct_line(layer, l+i, l+i+1);
+		vbuf.index_line [layer] [vbuf.index_pos_line [layer] - 1] = l;
 */
 
   int vertex_list_index = dsh->outline_base_vertex + 1;
@@ -10907,34 +10650,17 @@ static void draw_jaggy_proc_outline(int layer, float x, float y, al_fixed angle,
   if (vertex_list_index >= dsh->outline_vertices)
 			vertex_list_index = 0;
 
-	int m = vbuf.vertex_pos_triangle, n = vbuf.index_pos_triangle[layer];
-
-	for (i = 0; i < dsh->outline_vertices; ++i)
-	{
-		vbuf.buffer_triangle[m+i].x = vertex_list_x[i];
-		vbuf.buffer_triangle[m+i].y = vertex_list_y[i];
-		vbuf.buffer_triangle[m+i].color = fill_col;
-	}
-
 	for (i = 1; i < dsh->outline_vertices - 1; ++i)
 	{
+		int next_index = vertex_list_index + 1;
+		if (next_index >= dsh->outline_vertices)
+			next_index = 0;
+
 		for (j = 0; j < 3; ++j)
-		{
-			vbuf.index_triangle [layer] [n++] = m + dsh->outline_base_vertex;
-			vbuf.index_triangle [layer] [n++] = m + vertex_list_index;
+			construct_triangle(layer, m + dsh->outline_base_vertex, m + vertex_list_index, m + next_index);
 
-			if (vertex_list_index >= dsh->outline_vertices - 1)
-				vbuf.index_triangle [layer] [n++] = m + 0;
-			else
-				vbuf.index_triangle [layer] [n++] = m + vertex_list_index + 1;
-		}
-		vertex_list_index ++;
-		if (vertex_list_index >= dsh->outline_vertices)
-			vertex_list_index = 0;
+		vertex_list_index = next_index;
 	}
-
-	vbuf.vertex_pos_triangle += dsh->outline_vertices;
-	vbuf.index_pos_triangle[layer] = n;
 
 
   check_vbuf();
@@ -14369,17 +14095,15 @@ static void bloom_long(int layer, float x, float y, ALLEGRO_COLOR col_centre, AL
 static void radial_circle(int layer, float x, float y, int vertices, ALLEGRO_COLOR col, float circle_size)
 {
 
- int i;
- float angle_inc = PI*2/vertices;
+ int i, m = vbuf.vertex_pos_triangle;
+ const float angle_inc = PI*2/vertices;
+ const float csize = circle_size * view.zoom;
 
- start_radial(x, y, layer, col);
+	for (i = 0; i < vertices; i ++)
+		add_tri_vertex(x + cos(i*angle_inc) * csize, y + sin(i*angle_inc) * csize, col);
 
- for (i = 0; i < vertices; i ++)
- {
-  add_radial_vertex(i*angle_inc, circle_size);
- }
-
- finish_radial();
+	for (i = 1; i < vertices - 1; ++i)
+		construct_triangle(layer, m, m+i, m+i+1);
 
 }
 
@@ -14401,18 +14125,19 @@ static void draw_circle(int layer, float x, float y, float circle_size, ALLEGRO_
 
  circle_size *= view.zoom;
 
- int i;
+ int i, m = vbuf.vertex_pos_triangle;
 
- vertex_list [0] [0] = x;
- vertex_list [0] [1] = y;
+ float _x, _y;
 
- for (i = 0; i < 26; i ++) // remember - vertex_list has 32 elements
+	for (i = 0; i < 24; i ++)
 	{
-  vertex_list [i+1] [0] = x + (cos(i * PI/12) * circle_size);
-	 vertex_list [i+1] [1] = y + (sin(i * PI/12) * circle_size);
+		_x = x + (cos(i * PI/12) * circle_size);
+		_y = y + (sin(i * PI/12) * circle_size);
+		add_tri_vertex(_x, _y, col);
 	}
 
- add_poly_layer(layer, i, col);
+	for (i = 1; i < 23; ++i)
+		construct_triangle(layer, m, m+i, m+i+1);
 
 }
 
@@ -14489,144 +14214,6 @@ void add_method_base_diamond(float point_x, float point_y, float f_angle, struct
                           edge_col);
 
 }
-*/
-
-
-/*
-
-void add_outline_shape2(float x, float y, float float_angle, struct shape_struct* sh, ALLEGRO_COLOR line_col1, ALLEGRO_COLOR line_col2, ALLEGRO_COLOR line_col3, ALLEGRO_COLOR fill_col)
-{
-
- int i;
-
- outline_buffer [outline_pos].vertex_start = outline_vertex_pos;
- outline_buffer [outline_pos].vertices = sh->vertices;
- outline_buffer [outline_pos].line_col [0] = line_col1;
- outline_buffer [outline_pos].line_col [1] = line_col2;
- outline_buffer [outline_pos].line_col [2] = line_col3;
- outline_pos ++;
-
- for (i = 0; i < sh->vertices; i ++)
- {
-  poly_buffer [poly_pos].x = x;
-  poly_buffer [poly_pos].y = y;
-  poly_buffer [poly_pos].z = 0;
-  poly_buffer [poly_pos].color = fill_col;
-  poly_pos ++;
-  poly_buffer [poly_pos].x = x + fxpart(float_angle + sh->vertex_angle_float [i], sh->vertex_dist_pixel [i]);
-  poly_buffer [poly_pos].y = y + fypart(float_angle + sh->vertex_angle_float [i], sh->vertex_dist_pixel [i]);
-  poly_buffer [poly_pos].z = 0;
-  poly_buffer [poly_pos].color = fill_col;
-
-  outline_vertex [outline_vertex_pos++] = poly_buffer [poly_pos].x;
-  outline_vertex [outline_vertex_pos++] = poly_buffer [poly_pos].y;
-
-  poly_pos ++;
-//  outline_pos ++;
-  poly_buffer [poly_pos].x = x + fxpart(float_angle + sh->vertex_angle_float [i + 1], sh->vertex_dist_pixel [i + 1]);
-  poly_buffer [poly_pos].y = y + fypart(float_angle + sh->vertex_angle_float [i + 1], sh->vertex_dist_pixel [i + 1]);
-  poly_buffer [poly_pos].z = 0;
-  poly_buffer [poly_pos].color = fill_col;
-  poly_pos ++;
-
-
- }
-
-  outline_vertex [outline_vertex_pos++] = poly_buffer [poly_pos - 1].x;
-  outline_vertex [outline_vertex_pos++] = poly_buffer [poly_pos - 1].y;
-
-
- check_buffer_sizes();
-
-
-}
-*/
-
-
-/*
-void add_scaled_outline_shape(struct shape_struct* sh, float float_angle, float x, float y, ALLEGRO_COLOR fill_col, ALLEGRO_COLOR edge_col, float scale)
-{
-
- int i;
-
-
- for (i = 0; i < sh->vertices; i ++)
- {
-  layer_poly_buffer [2] [layer_poly_pos [2]].x = x;
-  layer_poly_buffer [2] [layer_poly_pos [2]].y = y;
-  layer_poly_buffer [2] [layer_poly_pos [2]].z = 0;
-  layer_poly_buffer [2] [layer_poly_pos [2]].color = fill_col;
-  layer_poly_pos [2] ++;
-  layer_poly_buffer [2] [layer_poly_pos [2]].x = x + fxpart(float_angle + sh->vertex_angle_float [i], sh->vertex_dist_pixel [i] * scale);
-  layer_poly_buffer [2] [layer_poly_pos [2]].y = y + fypart(float_angle + sh->vertex_angle_float [i], sh->vertex_dist_pixel [i] * scale);
-  layer_poly_buffer [2] [layer_poly_pos [2]].z = 0;
-  layer_poly_buffer [2] [layer_poly_pos [2]].color = fill_col;
-
-  layer_line_buffer [2] [layer_line_pos [2]].x = layer_poly_buffer [2] [layer_poly_pos [2]].x;
-  layer_line_buffer [2] [layer_line_pos [2]].y = layer_poly_buffer [2] [layer_poly_pos [2]].y;
-  layer_line_buffer [2] [layer_line_pos [2]].z = 0;
-  layer_line_buffer [2] [layer_line_pos [2]].color = edge_col;
-
-  layer_poly_pos [2] ++;
-  layer_line_pos [2] ++;
-
-  layer_poly_buffer [2] [layer_poly_pos [2]].x = x + fxpart(float_angle + sh->vertex_angle_float [i + 1], sh->vertex_dist_pixel [i + 1] * scale);
-  layer_poly_buffer [2] [layer_poly_pos [2]].y = y + fypart(float_angle + sh->vertex_angle_float [i + 1], sh->vertex_dist_pixel [i + 1] * scale);
-  layer_poly_buffer [2] [layer_poly_pos [2]].z = 0;
-  layer_poly_buffer [2] [layer_poly_pos [2]].color = fill_col;
-
-  layer_line_buffer [2] [layer_line_pos [2]].x = layer_poly_buffer [2] [layer_poly_pos [2]].x;
-  layer_line_buffer [2] [layer_line_pos [2]].y = layer_poly_buffer [2] [layer_poly_pos [2]].y;
-  layer_line_buffer [2] [layer_line_pos [2]].z = 0;
-  layer_line_buffer [2] [layer_line_pos [2]].color = edge_col;
-  layer_line_pos [2] ++;
-
-  layer_poly_pos [2] ++;
-
-
- }
-
-//  outline_vertex [outline_vertex_pos++] = poly_buffer [poly_pos - 1].x;
-//  outline_vertex [outline_vertex_pos++] = poly_buffer [poly_pos - 1].y;
-
-
- check_buffer_sizes();
-
-
-}
-*/
-
-/*
-
-
-void add_scaled_outline(struct shape_struct* sh, float float_angle, float x, float y, ALLEGRO_COLOR edge_col, float scale)
-{
-
- int i;
-
- for (i = 0; i < sh->vertices; i ++)
- {
-
-  layer_line_buffer [2] [layer_line_pos [2]].x = x + fxpart(float_angle + sh->vertex_angle_float [i], sh->vertex_dist_pixel [i] * scale);
-  layer_line_buffer [2] [layer_line_pos [2]].y = y + fypart(float_angle + sh->vertex_angle_float [i], sh->vertex_dist_pixel [i] * scale);
-  layer_line_buffer [2] [layer_line_pos [2]].z = 0;
-  layer_line_buffer [2] [layer_line_pos [2]].color = edge_col;
-
-  layer_line_pos [2] ++;
-
-  layer_line_buffer [2] [layer_line_pos [2]].x = x + fxpart(float_angle + sh->vertex_angle_float [i + 1], sh->vertex_dist_pixel [i + 1] * scale);
-  layer_line_buffer [2] [layer_line_pos [2]].y = y + fypart(float_angle + sh->vertex_angle_float [i + 1], sh->vertex_dist_pixel [i + 1] * scale);
-  layer_line_buffer [2] [layer_line_pos [2]].z = 0;
-  layer_line_buffer [2] [layer_line_pos [2]].color = edge_col;
-  layer_line_pos [2] ++;
-
-
- }
-
- check_buffer_sizes();
-
-}
-
 */
 
 void add_outline_diamond_layer(int layer, float vx1, float vy1, float vx2, float vy2, float vx3, float vy3, float vx4, float vy4, ALLEGRO_COLOR fill_col, ALLEGRO_COLOR edge_col)
@@ -16949,23 +16536,6 @@ default:
                                 vertex_list[6][1] = vertex_list[7][1] + sin(base_angle + (PI/3)*(k+0.5)) * (far_dist) * specific_zoom;
 
 
-/*
-
-                                vertex_list[0][0] = bx2 + left_xpart * 32;// well_size;
-                                vertex_list[0][1] = by2 + left_ypart * 32;// well_size;
-                                vertex_list[1][0] = bx2 + right_xpart * 32; //well_size;
-                                vertex_list[1][1] = by2 + right_ypart * 32; //well_size;
-                                vertex_list[2][0] = vertex_list[1][0] + cos(BASE_WELL_ANGLE + (PI/3)*(k+1)) * (well_size / 2 + 12) * specific_zoom;
-                                vertex_list[2][1] = vertex_list[1][1] + sin(BASE_WELL_ANGLE + (PI/3)*(k+1)) * (well_size / 2 + 12) * specific_zoom;
-                                vertex_list[3][0] = bx2 + cos(BASE_WELL_ANGLE + (PI/3)*(k+1) - 0.45) * (well_size + 64) * specific_zoom;
-                                vertex_list[3][1] = by2 + sin(BASE_WELL_ANGLE + (PI/3)*(k+1) - 0.45) * (well_size + 64) * specific_zoom;
-                                vertex_list[4][0] = bx2 + cos(BASE_WELL_ANGLE + (PI/3)*k + 0.45) * (well_size + 64) * specific_zoom;
-                                vertex_list[4][1] = by2 + sin(BASE_WELL_ANGLE + (PI/3)*k + 0.45) * (well_size + 64) * specific_zoom;
-                                vertex_list[5][0] = vertex_list[0][0] + cos(BASE_WELL_ANGLE + (PI/3)*(k)) * (well_size / 2 + 12) * specific_zoom;
-                                vertex_list[5][1] = vertex_list[0][1] + sin(BASE_WELL_ANGLE + (PI/3)*(k)) * (well_size / 2 + 12) * specific_zoom;
-
-*/
-
                                 add_poly_layer(1, 8, colours.data_well_hexes [2]);
 
 
@@ -17177,18 +16747,13 @@ default:
                                 if (w.data_well[backbl->backblock_value].reserve_data [k] == 0)
                                     continue;
                                 int l;
-                                float reserve_square_arc_inner;// = 0.16;
-                                float reserve_square_arc_outer;// = 0.13;
+                                float reserve_square_arc_inner;
+                                float reserve_square_arc_outer;
                                 float reserve_square_length = 42;
                                 float reserve_data_proportion = w.data_well[backbl->backblock_value].reserve_data [k] * 0.001;
                                 float base_dist, base_well_ring_angle;
 //                                base_well_ring_angle += (PI / w.data_well[backbl->backblock_value].reserve_squares) * l;
                                 reserve_square_length *= reserve_data_proportion * specific_zoom;
-                                if (reserve_data_proportion < 1)
-																																{
-                                 reserve_square_arc_inner *= reserve_data_proportion;
-                                 reserve_square_arc_outer *= reserve_data_proportion;
-																																}
 																																if (k == 0)
 																																{
                                      base_dist = 180 * specific_zoom;//(80 + drand(60, 1)) * specific_zoom;
@@ -18032,7 +17597,6 @@ void set_mouse_cursor(int mc_index)
 }
 #endif
 
-//#define DRAW_SHAPE_DATA
 
 
 // wrapper around al_map_rgb that does bounds-checking
@@ -18081,190 +17645,6 @@ ALLEGRO_COLOR map_rgba(int r, int g, int b, int a)
  return al_map_rgba(r, g, b, a);
 
 }
-
-
-#ifdef DRAW_SHAPE_DATA
-
-void draw_a_proc_shape_data(int s, float x, float y);
-
-// This generates a special image for the manual (so a screenshot can be taken of it) then pretends to have an error and exits.
-void draw_proc_shape_data(void)
-{
-
- al_set_new_bitmap_flags(ALLEGRO_MEMORY_BITMAP);
- ALLEGRO_BITMAP* shape_bmp = al_create_bitmap(1000, 3000);
- if (!shape_bmp)
-	{
-		fprintf(stdout, "\nError: shape_bmp not created.");
-		error_call();
-	}
- al_set_target_bitmap(shape_bmp);
-
-// al_set_target_bitmap(al_get_backbuffer(display));
- al_set_blender(ALLEGRO_ADD, ALLEGRO_ALPHA, ALLEGRO_INVERSE_ALPHA);
- al_clear_to_color(colours.base [COL_BLUE] [SHADE_MIN]);
-
- reset_fan_index();
-
- int s;
-#define DATA_BASE_X 140
- float x = DATA_BASE_X;
- float y = 100;
-
- for (s = 0; s < SHAPES; s ++)
- {
-  draw_a_proc_shape_data(s, x, y);
-  x += 240;
-  if (x > 1000
-			|| s == SHAPE_4SQUARE - 1
-			|| s == SHAPE_5PENTAGON - 1
-			|| s == SHAPE_6HEXAGON - 1
-			|| s == SHAPE_8OCTAGON - 1)
-  {
-   y += 300;
-   x = DATA_BASE_X;
-  }
- }
-
- draw_fans();
- draw_from_buffers();
-
- al_save_bitmap("shape_test.bmp", shape_bmp);
-/*
- if (settings.option [OPTION_SPECIAL_CURSOR])
-  draw_mouse_cursor();
- al_flip_display();
-*/
- error_call();
-
-}
-
-#define DRAW_TEAM 0
-#define DRAW_SIZE 1
-#define DRAW_LINE 12
-
-void draw_a_proc_shape_data(int s, float x, float y)
-{
-
- struct proc_struct draw_pr; // this just needs to be initialised to the extent that add_proc_shape() uses
- struct shape_struct* sh = &shape_dat [s] [DRAW_SIZE];
- float f_angle = -PI/2;
-
- int i;
-
- for (i = 0; i < SHAPES_VERTICES; i ++)
- {
-  draw_pr.vertex_method [i] = -1;
- }
-
- add_proc_shape(&draw_pr, x, y, f_angle, sh, s, DRAW_SIZE,
-                colours.proc_fill [DRAW_TEAM] [PROC_FILL_SHADES - 1] [0],
-                colours.team [DRAW_TEAM] [TCOL_FILL_BASE],
-                colours.team [DRAW_TEAM] [TCOL_MAIN_EDGE]);
-
- float vx, vy;
-
- for (i = 0; i < sh->vertices; i ++)
- {
-  vx = x + fxpart(f_angle + sh->vertex_angle_float [i], sh->vertex_dist_pixel [i] + 10);
-  vy = y + fypart(f_angle + sh->vertex_angle_float [i], sh->vertex_dist_pixel [i] + 10);
-  al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_HIGH], vx, vy - 4, ALLEGRO_ALIGN_CENTRE, "%i", i);
- }
-
- char sh_str [30] = "nothing";
-
- switch(s)
- {
-  case SHAPE_3TRIANGLE: strcpy(sh_str, "SHAPE_3TRIANGLE"); break;
-  case SHAPE_4SQUARE: strcpy(sh_str, "SHAPE_4SQUARE"); break;
-  case SHAPE_4DIAMOND: strcpy(sh_str, "SHAPE_4DIAMOND"); break;
-  case SHAPE_4POINTY: strcpy(sh_str, "SHAPE_4POINTY"); break;
-  case SHAPE_4TRAP: strcpy(sh_str, "SHAPE_4TRAP"); break;
-  case SHAPE_4IRREG_L: strcpy(sh_str, "SHAPE_4IRREG_L"); break;
-  case SHAPE_4IRREG_R: strcpy(sh_str, "SHAPE_4IRREG_R"); break;
-  case SHAPE_4ARROW: strcpy(sh_str, "SHAPE_4ARROW"); break;
-  case SHAPE_5PENTAGON: strcpy(sh_str, "SHAPE_5PENTAGON"); break;
-  case SHAPE_5POINTY: strcpy(sh_str, "SHAPE_5POINTY"); break;
-  case SHAPE_5LONG: strcpy(sh_str, "SHAPE_5LONG"); break;
-  case SHAPE_5WIDE: strcpy(sh_str, "SHAPE_5WIDE"); break;
-  case SHAPE_6HEXAGON: strcpy(sh_str, "SHAPE_6HEXAGON"); break;
-  case SHAPE_6POINTY: strcpy(sh_str, "SHAPE_6POINTY"); break;
-  case SHAPE_6LONG: strcpy(sh_str, "SHAPE_6LONG"); break;
-  case SHAPE_6IRREG_L: strcpy(sh_str, "SHAPE_6IRREG_L"); break;
-  case SHAPE_6IRREG_R: strcpy(sh_str, "SHAPE_6IRREG_R"); break;
-  case SHAPE_6ARROW: strcpy(sh_str, "SHAPE_6ARROW"); break;
-  case SHAPE_6STAR: strcpy(sh_str, "SHAPE_6STAR"); break;
-  case SHAPE_8OCTAGON: strcpy(sh_str, "SHAPE_8OCTAGON"); break;
-  case SHAPE_8POINTY: strcpy(sh_str, "SHAPE_8POINTY"); break;
-  case SHAPE_8LONG: strcpy(sh_str, "SHAPE_8LONG"); break;
-  case SHAPE_8STAR: strcpy(sh_str, "SHAPE_8STAR"); break;
- }
-
-
-
-
-#define DRAW_X_COL 30
-#define DRAW_X_COL_NAME 30
-
- float line_y = y + 80;
- al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_HIGH], x, line_y, ALLEGRO_ALIGN_CENTRE, "%s", sh_str);
- line_y += DRAW_LINE + 10;
- al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_HIGH], x - DRAW_X_COL_NAME, line_y, ALLEGRO_ALIGN_RIGHT, "SIZE");
- for (i = 0; i < SHAPES_SIZES; i ++)
- {
-  al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_HIGH], x + i * DRAW_X_COL, line_y, ALLEGRO_ALIGN_RIGHT, "%i", i);
- }
- line_y += DRAW_LINE;
- al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_HIGH], x - DRAW_X_COL_NAME, line_y, ALLEGRO_ALIGN_RIGHT, "base mass");
- for (i = 0; i < SHAPES_SIZES; i ++)
- {
-  al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_MED], x + i * DRAW_X_COL, line_y, ALLEGRO_ALIGN_RIGHT, "%i", shape_dat [s] [i].shape_mass);
- }
- line_y += DRAW_LINE;
- al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_HIGH], x - DRAW_X_COL_NAME, line_y, ALLEGRO_ALIGN_RIGHT, "max method mass");
- for (i = 0; i < SHAPES_SIZES; i ++)
- {
-  al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_MED], x + i * DRAW_X_COL, line_y, ALLEGRO_ALIGN_RIGHT, "%i", shape_dat [s] [i].mass_max - shape_dat [s] [i].shape_mass);
- }
- line_y += DRAW_LINE;
- al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_HIGH], x - DRAW_X_COL_NAME, line_y, ALLEGRO_ALIGN_RIGHT, "max hp");
- for (i = 0; i < SHAPES_SIZES; i ++)
- {
-  al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_MED], x + i * DRAW_X_COL, line_y, ALLEGRO_ALIGN_RIGHT, "%i", shape_dat [s] [i].base_hp_max);
- }
- line_y += DRAW_LINE;
- al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_HIGH], x - DRAW_X_COL_NAME, line_y, ALLEGRO_ALIGN_RIGHT, "irpt buffer");
- for (i = 0; i < SHAPES_SIZES; i ++)
- {
-  al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_MED], x + i * DRAW_X_COL, line_y, ALLEGRO_ALIGN_RIGHT, "%i", shape_dat [s] [i].base_irpt_max);
- }
- line_y += DRAW_LINE;
- al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_HIGH], x - DRAW_X_COL_NAME, line_y, ALLEGRO_ALIGN_RIGHT, "data buffer");
- for (i = 0; i < SHAPES_SIZES; i ++)
- {
-  al_draw_textf(font[FONT_SQUARE].fnt, colours.base [COL_GREY] [SHADE_MED], x + i * DRAW_X_COL, line_y, ALLEGRO_ALIGN_RIGHT, "%i", shape_dat [s] [i].base_data_max);
- }
-
- int base_hp_max;
- int base_irpt_max;
- int base_data_max;
- int mass_max;
- int shape_mass; // basic mass of shape with no methods
-/*
-   shape_dat [i] [j].base_hp_max = shape_solidity [i] * (5 + j); //shape_type[i].hp * (5 + j);
-   shape_dat [i] [j].base_irpt_max = shape_solidity [i] * (4 + j) * 20; //shape_type[i].irpt * (5 + j);
-   shape_dat [i] [j].base_data_max = shape_solidity [i] * (4 + j) * 2; //shape_type[i].data * (5 + j);
-   shape_dat [i] [j].method_mass_max = shape_solidity [i] * (8 + (j * 4));
-   shape_dat [i] [j].shape_mass = shape_solidity [i] * (3 + j); //shape_type[i].shape_mass * (5 + j);
-*/
-
-}
-
-
-
-
-#endif
-// ends ifdef DRAW_SHAPE_DATA
 
 //#define DRAW_SHAPE_TEST
 

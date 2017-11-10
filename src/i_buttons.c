@@ -41,10 +41,6 @@ int menu_string_pos;
 
 extern struct fontstruct font [FONTS];
 
-// defined in i_display.c:
-//extern ALLEGRO_VERTEX poly_buffer [POLY_BUFFER]; // POLY_BUFFER #defined in i_header.h
-//extern int poly_pos;
-
 static void check_button_buffer(void);
 void draw_button_buffer(void);
 
@@ -163,8 +159,6 @@ void draw_button_buffer(void)
 
 
  draw_vbuf();
-//  al_draw_prim(poly_buffer, NULL, NULL, 0, poly_pos, ALLEGRO_PRIM_TRIANGLE_LIST);
-//  poly_pos = 0;
 
 }
 

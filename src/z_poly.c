@@ -372,24 +372,13 @@ static void add_zrect(float xa, float ya, float xb, float yb, ALLEGRO_COLOR zcol
 
 static void add_ztri(int layer, float x1, float y1, float x2, float y2, float x3, float y3, ALLEGRO_COLOR fill_col)
 {
+	int m = vbuf.vertex_pos_triangle;
 
-				vbuf.buffer_triangle[vbuf.vertex_pos_triangle].x = x1;
-   	vbuf.buffer_triangle[vbuf.vertex_pos_triangle].y = y1;
-    vbuf.buffer_triangle[vbuf.vertex_pos_triangle].color = fill_col;
-    vbuf.index_triangle [layer] [vbuf.index_pos_triangle [layer]++] = vbuf.vertex_pos_triangle;
-    vbuf.vertex_pos_triangle++;
+	add_tri_vertex(x1, y1, fill_col);
+	add_tri_vertex(x2, y2, fill_col);
+	add_tri_vertex(x3, y3, fill_col);
 
-				vbuf.buffer_triangle[vbuf.vertex_pos_triangle].x = x2;
-   	vbuf.buffer_triangle[vbuf.vertex_pos_triangle].y = y2;
-    vbuf.buffer_triangle[vbuf.vertex_pos_triangle].color = fill_col;
-    vbuf.index_triangle [layer] [vbuf.index_pos_triangle [layer]++] = vbuf.vertex_pos_triangle;
-    vbuf.vertex_pos_triangle++;
-
-				vbuf.buffer_triangle[vbuf.vertex_pos_triangle].x = x3;
-   	vbuf.buffer_triangle[vbuf.vertex_pos_triangle].y = y3;
-    vbuf.buffer_triangle[vbuf.vertex_pos_triangle].color = fill_col;
-    vbuf.index_triangle [layer] [vbuf.index_pos_triangle [layer]++] = vbuf.vertex_pos_triangle;
-    vbuf.vertex_pos_triangle++;
+	construct_triangle(layer, m, m+1, m+2);
 }
 
 
