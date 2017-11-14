@@ -68,6 +68,7 @@ al_fixed short_angle_to_fixed(s16b short_angle);
 al_fixed int_angle_to_fixed(int int_angle);
 int fixed_angle_to_int(al_fixed fix_angle);
 
+cart rotate_cart(cart c, al_fixed angle);
 cart cart_plus_vector(cart base_position, al_fixed angle, al_fixed length);
 void add_vector_to_cart(cart* base_position, al_fixed angle, al_fixed length);
 cart cart_plus_xy(cart base_position, al_fixed x, al_fixed y);

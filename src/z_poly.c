@@ -87,8 +87,7 @@ struct dshape_struct
 	int links; // how many links
 
 	int outline_vertices;
-	al_fixed outline_vertex_angle_fixed [OUTLINE_VERTICES];
-	al_fixed outline_vertex_dist_fixed [OUTLINE_VERTICES];
+	cart outline_vertex_pos [OUTLINE_VERTICES];
 	float outline_vertex_angle [OUTLINE_VERTICES];
 	float outline_vertex_dist [OUTLINE_VERTICES];
 	int outline_base_vertex; // this is an index in the outline vertex arrays for a vertex to use as a base for a fan (fans can be used for outlines because outlines are generally simpler than polys)

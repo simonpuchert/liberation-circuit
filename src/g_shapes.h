@@ -91,9 +91,8 @@ struct nshape_struct
  int keyword_index; // index of the keyword name for this shape in the identifier array (see c_keywords.c)
  int unlock_index; // index in the UNLOCK array. UNLOCK_NONE means that it doesn't need to be unlocked in story mode.
 
- al_fixed vertex_angle_fixed [NSHAPE_VERTICES]; // used for display
+ cart vertex_pos [NSHAPE_VERTICES]; // from centre of shape
  int vertex_dist_pixel [NSHAPE_VERTICES]; // in pixels - available through data call
- al_fixed vertex_dist_fixed [NSHAPE_VERTICES]; // from centre of shape
 
  al_fixed max_length; // longest radius (from zero point) of any point in the shape (in GRAIN units)
 
@@ -139,8 +138,7 @@ struct dshape_struct
  int display_vertices [DSHAPE_POLYS];
  int display_triangles [DSHAPE_POLYS];
 
- float display_vertex_angle [DSHAPE_POLYS] [DSHAPE_DISPLAY_VERTICES]; // used for display
- float display_vertex_dist [DSHAPE_POLYS] [DSHAPE_DISPLAY_VERTICES]; // used for display
+ float display_vertex_pos[DSHAPE_POLYS][DSHAPE_DISPLAY_VERTICES][2]; // used for display
 
 	int display_triangle_index [DSHAPE_POLYS] [DSHAPE_DISPLAY_VERTICES] [3]; // not sure about the DSHAPE_DISPLAY_VERTICES dimension
 	int poly_fill_source [DSHAPE_POLYS] [2]; // x/y coordinates of the source used for floodfill for the dshape's collision mask. Any point inside the polygon will do.
@@ -163,8 +161,7 @@ struct dshape_struct
 	int links; // how many links
 
 	int outline_vertices;
-	al_fixed outline_vertex_angle_fixed [OUTLINE_VERTICES];
-	al_fixed outline_vertex_dist_fixed [OUTLINE_VERTICES];
+	cart outline_vertex_pos [OUTLINE_VERTICES];
 	float outline_vertex_angle [OUTLINE_VERTICES];
 	float outline_vertex_dist [OUTLINE_VERTICES];
 	int outline_base_vertex;

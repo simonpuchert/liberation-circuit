@@ -630,8 +630,6 @@ static void check_block_collision(struct proc_struct* pr, struct block_struct* b
  cart collision_position;
  cart vertex_speed;
 
- al_fixed impulse_angle, force;
-
  struct nshape_struct* pr1_nshape = &nshape [pr->shape];
 
  while(check_proc != NULL)
@@ -699,40 +697,37 @@ To do next: use check_shape_shape_collision to:
        w.core[check_proc->core_index].contact_core_index = w.core[pr->core_index].index;
        w.core[check_proc->core_index].contact_core_timestamp = w.core[pr->core_index].created_timestamp;
 
-      	collision_position = cart_plus_vector(pr->provisional_position, pr->provisional_angle + pr->nshape_ptr->vertex_angle_fixed [collision_vertex], pr->nshape_ptr->vertex_dist_fixed [collision_vertex]);
+       cart cp = rotate_cart(pr->nshape_ptr->vertex_pos[collision_vertex], pr->provisional_angle);
+       collision_position = cart_plus_xy(pr->provisional_position, cp.x, cp.y);
 // calculate the velocity of the vertex of pr that hit check_proc:
-       vertex_speed = cart_plus_xy(collision_position,
-																																			0 - (pr->position.x + fixed_xpart(pr->angle + pr->nshape_ptr->vertex_angle_fixed [collision_vertex], pr->nshape_ptr->vertex_dist_fixed [collision_vertex])),
-																																			0 - (pr->position.y + fixed_ypart(pr->angle + pr->nshape_ptr->vertex_angle_fixed [collision_vertex], pr->nshape_ptr->vertex_dist_fixed [collision_vertex])));
+       cart cp2 = rotate_cart(pr->nshape_ptr->vertex_pos[collision_vertex], pr->angle);
+       vertex_speed = cart_plus_xy(collision_position, - pr->position.x - cp2.x, - pr->position.y - cp2.y);
 
-       al_fixed struck_point_angle = get_angle(collision_position.y - check_proc->provisional_position.y, collision_position.x - check_proc->provisional_position.x);
-       al_fixed struck_point_dist = distance_oct(collision_position.y - check_proc->provisional_position.y, collision_position.x - check_proc->provisional_position.x);
-       al_fixed struck_point_old_x = check_proc->position.x + fixed_xpart(struck_point_angle - check_proc->spin, struck_point_dist);
-       al_fixed struck_point_old_y = check_proc->position.y + fixed_ypart(struck_point_angle - check_proc->spin, struck_point_dist);
-       al_fixed struck_point_speed_x = collision_position.x - struck_point_old_x;
-       al_fixed struck_point_speed_y = collision_position.y - struck_point_old_y;
+       cart struck_point = cart_plus_xy(collision_position, - check_proc->provisional_position.x, - check_proc->provisional_position.y);
+       cart shift = rotate_cart(struck_point, - check_proc->spin);
+       cart struck_point_old = cart_plus_xy(check_proc->position, shift.x, shift.y);
+       cart struck_point_speed = cart_plus_xy(collision_position, - struck_point_old.x, - struck_point_old.y);
+       al_fixed collision_speed = distance_oct(vertex_speed.x - struck_point_speed.x, vertex_speed.y - struck_point_speed.y);
 
-       al_fixed collision_speed_x = vertex_speed.x - struck_point_speed_x;
-       al_fixed collision_speed_y = vertex_speed.y - struck_point_speed_y;
-
-       al_fixed collision_speed = distance_oct(collision_speed_y, collision_speed_x);
-
-
-       impulse_angle = get_angle(collision_position.y - check_proc->provisional_position.y, collision_position.x - check_proc->provisional_position.x);
-       force = (collision_speed * check_proc->mass);//al_itofix(100); //pr_force_share / FORCE_DIVISOR;
+       cart impulse = cart_plus_xy(collision_position, - check_proc->provisional_position.x, - check_proc->provisional_position.y);
+       al_fixed factor = al_fixdiv(collision_speed * check_proc->mass, distance_oct(impulse.x, impulse.y));
        if (pr->mass_for_collision_comparison > check_proc->mass_for_collision_comparison)
-								force /= COLLISION_FORCE_DIVISOR_HEAVIER;
+								factor /= COLLISION_FORCE_DIVISOR_HEAVIER;
 								 else
-  								force /= COLLISION_FORCE_DIVISOR_LIGHTER;
-       apply_impulse_to_proc_at_collision_vertex(pr, collision_vertex, force, impulse_angle);
+								factor /= COLLISION_FORCE_DIVISOR_LIGHTER;
+       impulse.x = al_fixmul(impulse.x, factor);
+       impulse.y = al_fixmul(impulse.y, factor);
+       apply_impulse_to_proc(pr, cp2, impulse);
 
-       impulse_angle = get_angle(collision_position.y - pr->provisional_position.y, collision_position.x - pr->provisional_position.x);
-       force = (collision_speed * pr->mass);// / COLLISION_FORCE_DIVISOR;//al_itofix(100); //check_proc_force_share / FORCE_DIVISOR;
+       impulse = cp;
+       factor = al_fixdiv(collision_speed * pr->mass, distance_oct(impulse.x, impulse.y));
        if (check_proc->mass_for_collision_comparison > pr->mass_for_collision_comparison)
-								force /= COLLISION_FORCE_DIVISOR_HEAVIER;
+								factor /= COLLISION_FORCE_DIVISOR_HEAVIER;
 								 else
-  								force /= COLLISION_FORCE_DIVISOR_LIGHTER;
-       apply_impulse_to_proc_at_vector_point(check_proc, struck_point_angle, struck_point_dist, force, impulse_angle);
+								factor /= COLLISION_FORCE_DIVISOR_LIGHTER;
+       impulse.x = al_fixmul(impulse.x, factor);
+       impulse.y = al_fixmul(impulse.y, factor);
+       apply_impulse_to_proc(check_proc, struck_point, impulse);
 
        fix_group_speed(&w.core[pr->core_index]);
        fix_group_speed(&w.core[check_proc->core_index]);
@@ -1126,22 +1121,25 @@ extern unsigned char nshape_collision_mask [NSHAPES] [COLLISION_MASK_SIZE] [COLL
 int check_nshape_nshape_collision(struct nshape_struct* nshape1, int nshape2_index, al_fixed sh1_x, al_fixed sh1_y, al_fixed sh1_angle, al_fixed sh2_x, al_fixed sh2_y, al_fixed sh2_angle)
 {
 
- al_fixed dist = distance_oct(sh1_y - sh2_y, sh1_x - sh2_x);
-
- al_fixed angle = get_angle(sh1_y - sh2_y, sh1_x - sh2_x);
- al_fixed angle_diff = angle - sh2_angle;
+ cart shift;
+ shift.x = sh1_x - sh2_x;
+ shift.y = sh1_y - sh2_y;
+ shift = rotate_cart(shift, - sh2_angle);
 
  unsigned int v, mask_x, mask_y;
 
- al_fixed sh1_centre_x = MASK_CENTRE_FIXED + fixed_xpart(angle_diff, dist);
- al_fixed sh1_centre_y = MASK_CENTRE_FIXED + fixed_ypart(angle_diff, dist);
+ al_fixed sh1_centre_x = MASK_CENTRE_FIXED + shift.x;
+ al_fixed sh1_centre_y = MASK_CENTRE_FIXED + shift.y;
 
+ cart rot;
+ rot.x = fixed_cos(sh1_angle - sh2_angle);
+ rot.y = fixed_sin(sh1_angle - sh2_angle);
  for (v = 0; v < nshape1->vertices; v ++)
  {
 
-  mask_x = al_fixtoi(sh1_centre_x + fixed_xpart(sh1_angle + nshape1->vertex_angle_fixed [v] - sh2_angle, nshape1->vertex_dist_fixed [v]));// + al_itofix(1)));
+  mask_x = al_fixtoi(sh1_centre_x + al_fixmul(rot.x, nshape1->vertex_pos[v].x) - al_fixmul(rot.y, nshape1->vertex_pos[v].y));// + al_itofix(1)));
   mask_x >>= COLLISION_MASK_BITSHIFT;
-  mask_y = al_fixtoi(sh1_centre_y + fixed_ypart(sh1_angle + nshape1->vertex_angle_fixed [v] - sh2_angle, nshape1->vertex_dist_fixed [v]));// + al_itofix(1)));
+  mask_y = al_fixtoi(sh1_centre_y + al_fixmul(rot.x, nshape1->vertex_pos[v].y) + al_fixmul(rot.y, nshape1->vertex_pos[v].x));// + al_itofix(1)));
   mask_y >>= COLLISION_MASK_BITSHIFT;
 
   if (mask_x < COLLISION_MASK_SIZE // don't check for < 0 because they're unsigned
@@ -1250,63 +1248,49 @@ This function does not handle the reverse situation (group member's vertex colli
 static void proc_group_collision(struct proc_struct* single_pr, struct proc_struct* group_pr, int collision_vertex)
 {
 //fpr("\nproc_group_collision!");
-       struct core_struct* group_core = &w.core[group_pr->core_index];
+	struct core_struct* group_core = &w.core[group_pr->core_index];
 
-       group_core->contact_core_index = single_pr->core_index;
-       group_core->contact_core_timestamp = w.core[single_pr->core_index].created_timestamp;
-       w.core[single_pr->core_index].contact_core_index = group_core->index;
-       w.core[single_pr->core_index].contact_core_timestamp = group_core->created_timestamp;
+	group_core->contact_core_index = single_pr->core_index;
+	group_core->contact_core_timestamp = w.core[single_pr->core_index].created_timestamp;
+	w.core[single_pr->core_index].contact_core_index = group_core->index;
+	w.core[single_pr->core_index].contact_core_timestamp = group_core->created_timestamp;
 
-       al_fixed collision_x = single_pr->provisional_position.x + fixed_xpart(single_pr->provisional_angle + single_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], single_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]);
-       al_fixed collision_y = single_pr->provisional_position.y + fixed_ypart(single_pr->provisional_angle + single_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], single_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]);
-// calculate the velocity of the vertex of pr that hit check_proc:
-       al_fixed vertex_speed_x = collision_x
-                      - (single_pr->position.x + fixed_xpart(single_pr->angle + single_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], single_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]));
-       al_fixed vertex_speed_y = collision_y
-                      - (single_pr->position.y + fixed_ypart(single_pr->angle + single_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], single_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]));
-
-       al_fixed struck_point_angle = get_angle(collision_y - group_pr->provisional_position.y, collision_x - group_pr->provisional_position.x);
-       al_fixed struck_point_dist = distance_oct(collision_y - group_pr->provisional_position.y, collision_x - group_pr->provisional_position.x);
-       al_fixed struck_point_old_x = group_pr->position.x + fixed_xpart(struck_point_angle - (group_pr->provisional_angle - group_pr->angle), struck_point_dist);
-       al_fixed struck_point_old_y = group_pr->position.y + fixed_ypart(struck_point_angle - (group_pr->provisional_angle - group_pr->angle), struck_point_dist);
-       al_fixed struck_point_speed_x = collision_x - struck_point_old_x;
-       al_fixed struck_point_speed_y = collision_y - struck_point_old_y;
-
-       al_fixed collision_speed_x = vertex_speed_x - struck_point_speed_x;
-       al_fixed collision_speed_y = vertex_speed_y - struck_point_speed_y;
-
-       al_fixed collision_speed = distance_oct(collision_speed_y, collision_speed_x);
-
-       al_fixed impulse_angle = get_angle(collision_y - group_pr->provisional_position.y, collision_x - group_pr->provisional_position.x);
-//       int mass_proportion = 1;//(single_pr->mass * 100) / group_core->group_mass;
-//       mass_proportion *= mass_proportion;
-//       mass_proportion /= 100;
-//       al_fixed force = (collision_speed * group_core->group_mass * mass_proportion) / (COLLISION_FORCE_DIVISOR*100);//al_itofix(100); //pr_force_share / FORCE_DIVISOR;
-       al_fixed force = (collision_speed * group_core->group_mass);// / (COLLISION_FORCE_DIVISOR);//al_itofix(100); //pr_force_share / FORCE_DIVISOR;
-       if (single_pr->mass_for_collision_comparison > group_core->group_mass_for_collision_comparison)
-								force /= COLLISION_FORCE_DIVISOR_HEAVIER;
-								 else
-  								force /= COLLISION_FORCE_DIVISOR_LIGHTER;
-       apply_impulse_to_proc_at_collision_vertex(single_pr, collision_vertex, force, impulse_angle);
-//       single_pr->collided_this_cycle = 1;
-
-       impulse_angle = get_angle(collision_y - single_pr->provisional_position.y, collision_x - single_pr->provisional_position.x);
-//       mass_proportion = (group_core->group_mass * 100) / single_pr->mass;
-//       mass_proportion *= mass_proportion;
-//       mass_proportion /= 100;
-       force = (collision_speed * single_pr->mass);// / (COLLISION_FORCE_DIVISOR);//al_itofix(100); //check_proc_force_share / FORCE_DIVISOR;
-       if (group_core->group_mass_for_collision_comparison > single_pr->mass_for_collision_comparison)
-								force /= COLLISION_FORCE_DIVISOR_HEAVIER;
-								 else
-  								force /= COLLISION_FORCE_DIVISOR_LIGHTER;
-       apply_impulse_to_group(group_core, struck_point_old_x, struck_point_old_y, force, impulse_angle);
-//       group_pr->collided_this_cycle = 1;
-//       gr2->collided_this_cycle = 1;
-
-       fix_group_speed(&w.core[single_pr->core_index]);
-       fix_group_speed(group_core);
+	cart cp = rotate_cart(single_pr->nshape_ptr->vertex_pos[collision_vertex], single_pr->provisional_angle);
+	cart collision = cart_plus_xy(single_pr->provisional_position, cp.x, cp.y);
+// calculate the velocity of the vertex of single_pr that hit group_pr:
+	cart cp2 = rotate_cart(single_pr->nshape_ptr->vertex_pos[collision_vertex], single_pr->angle);
+	cart vertex_speed = cart_plus_xy(collision, - single_pr->position.x - cp2.x, - single_pr->position.y - cp2.y);
 
 
+	cart struck_point = cart_plus_xy(collision, - group_pr->provisional_position.x, - group_pr->provisional_position.y);
+	cart shift = rotate_cart(struck_point, - (group_pr->provisional_angle - group_pr->angle));
+	cart struck_point_old = cart_plus_xy(group_pr->position, shift.x, shift.y);
+	cart struck_point_speed = cart_plus_xy(collision, - struck_point_old.x, - struck_point_old.y);
+
+	al_fixed collision_speed = distance_oct(vertex_speed.x - struck_point_speed.x, vertex_speed.y - struck_point_speed.y);
+
+	cart impulse = struck_point;
+	al_fixed factor = al_fixdiv(collision_speed * group_core->group_mass, distance_oct(impulse.x, impulse.y));
+	if (single_pr->mass_for_collision_comparison > group_core->group_mass_for_collision_comparison)
+		factor /= COLLISION_FORCE_DIVISOR_HEAVIER;
+	else
+		factor /= COLLISION_FORCE_DIVISOR_LIGHTER;
+	impulse.x = al_fixmul(impulse.x, factor);
+	impulse.y = al_fixmul(impulse.y, factor);
+	apply_impulse_to_proc(single_pr, cp2, impulse);
+
+	impulse = cp;
+	factor = al_fixdiv(collision_speed * single_pr->mass, distance_oct(impulse.x, impulse.y));
+	if (group_core->group_mass_for_collision_comparison > single_pr->mass_for_collision_comparison)
+		factor /= COLLISION_FORCE_DIVISOR_HEAVIER;
+	else
+		factor /= COLLISION_FORCE_DIVISOR_LIGHTER;
+
+	cart lever = cart_plus_xy(struck_point_old, - group_core->group_centre_of_mass.x, - group_core->group_centre_of_mass.y);
+	apply_impulse_to_group(group_core, lever, impulse);
+
+	fix_group_speed(&w.core[single_pr->core_index]);
+	fix_group_speed(group_core);
 
 }
 
@@ -1320,65 +1304,49 @@ Opposite of proc_group_collision - here, a group member's vertex collides with a
 static void group_proc_collision(struct proc_struct* group_pr, struct proc_struct* single_pr, int collision_vertex)
 {
 
-       struct core_struct* group_core = &w.core[group_pr->core_index];
+	struct core_struct* group_core = &w.core[group_pr->core_index];
 
-       group_core->contact_core_index = single_pr->core_index;
-       group_core->contact_core_timestamp = w.core[single_pr->core_index].created_timestamp;
-       w.core[single_pr->core_index].contact_core_index = group_core->index;
-       w.core[single_pr->core_index].contact_core_timestamp = group_core->created_timestamp;
+	group_core->contact_core_index = single_pr->core_index;
+	group_core->contact_core_timestamp = w.core[single_pr->core_index].created_timestamp;
+	w.core[single_pr->core_index].contact_core_index = group_core->index;
+	w.core[single_pr->core_index].contact_core_timestamp = group_core->created_timestamp;
 
-       al_fixed collision_x = group_pr->provisional_position.x + fixed_xpart(group_pr->provisional_angle + group_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], group_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]);
-       al_fixed collision_y = group_pr->provisional_position.y + fixed_ypart(group_pr->provisional_angle + group_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], group_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]);
-// calculate the velocity of the vertex of pr that hit check_proc:
-       al_fixed vertex_speed_x = collision_x
-                      - (group_pr->position.x + fixed_xpart(group_pr->angle + group_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], group_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]));
-       al_fixed vertex_speed_y = collision_y
-                      - (group_pr->position.y + fixed_ypart(group_pr->angle + group_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], group_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]));
+	cart cp = rotate_cart(group_pr->nshape_ptr->vertex_pos[collision_vertex], group_pr->provisional_angle);
+	cart collision = cart_plus_xy(group_pr->provisional_position, cp.x, cp.y);
+// calculate the velocity of the vertex of group_pr that hit single_pr:
+	cart cp2 = rotate_cart(group_pr->nshape_ptr->vertex_pos[collision_vertex], group_pr->angle);
+	cart vertex_speed = cart_plus_xy(collision, - group_pr->position.x - cp2.x, - group_pr->position.y - cp2.y);
 
-       al_fixed struck_point_angle = get_angle(collision_y - single_pr->provisional_position.y, collision_x - single_pr->provisional_position.x);
-       al_fixed struck_point_dist = distance_oct(collision_y - single_pr->provisional_position.y, collision_x - single_pr->provisional_position.x);
-       al_fixed struck_point_old_x = single_pr->position.x + fixed_xpart(struck_point_angle - (single_pr->provisional_angle - single_pr->angle), struck_point_dist);
-       al_fixed struck_point_old_y = single_pr->position.y + fixed_ypart(struck_point_angle - (single_pr->provisional_angle - single_pr->angle), struck_point_dist);
-       al_fixed struck_point_speed_x = collision_x - struck_point_old_x;
-       al_fixed struck_point_speed_y = collision_y - struck_point_old_y;
+	cart struck_point = cart_plus_xy(collision, - single_pr->provisional_position.x, - single_pr->provisional_position.y);
+	cart shift = rotate_cart(struck_point, - (single_pr->provisional_angle - single_pr->angle));
+	cart struck_point_old = cart_plus_xy(single_pr->position, shift.x, shift.y);
+	cart struck_point_speed = cart_plus_xy(collision, - struck_point_old.x, - struck_point_old.y);
 
-       al_fixed collision_speed_x = vertex_speed_x - struck_point_speed_x;
-       al_fixed collision_speed_y = vertex_speed_y - struck_point_speed_y;
+	al_fixed collision_speed = distance_oct(vertex_speed.x - struck_point_speed.x, vertex_speed.y - struck_point_speed.y);
 
-       al_fixed collision_speed = distance_oct(collision_speed_y, collision_speed_x);
+	cart impulse = struck_point;
+	al_fixed factor = al_fixdiv(collision_speed * single_pr->mass, distance_oct(impulse.x, impulse.y));
+	if (group_core->group_mass_for_collision_comparison > single_pr->mass_for_collision_comparison)
+		factor /= COLLISION_FORCE_DIVISOR_HEAVIER;
+	else
+		factor /= COLLISION_FORCE_DIVISOR_LIGHTER;
+	impulse.x = al_fixmul(impulse.x, factor);
+	impulse.y = al_fixmul(impulse.y, factor);
+	cart lever = cart_plus_xy(cp2, group_pr->position.x - group_core->group_centre_of_mass.x, group_pr->position.y - group_core->group_centre_of_mass.y);
+	apply_impulse_to_group(group_core, lever, impulse);
 
-       al_fixed impulse_angle = get_angle(collision_y - single_pr->provisional_position.y, collision_x - single_pr->provisional_position.x);
-//       int mass_proportion = 1;//(single_pr->mass * 100) / group_core->group_mass;
-//       mass_proportion *= mass_proportion;
-//       mass_proportion /= 100;
-       al_fixed force = (collision_speed * single_pr->mass);// * mass_proportion);// / (COLLISION_FORCE_DIVISOR);//al_itofix(100); //pr_force_share / FORCE_DIVISOR;
-       if (group_core->group_mass_for_collision_comparison > single_pr->mass_for_collision_comparison)
-								force /= COLLISION_FORCE_DIVISOR_HEAVIER;
-								 else
-  								force /= COLLISION_FORCE_DIVISOR_LIGHTER;
+	impulse = cp;
+	factor = al_fixdiv(collision_speed * group_core->group_mass, distance_oct(impulse.x, impulse.y));
+	if (single_pr->mass_for_collision_comparison > group_core->group_mass_for_collision_comparison)
+		factor /= COLLISION_FORCE_DIVISOR_HEAVIER;
+	else
+		factor /= COLLISION_FORCE_DIVISOR_LIGHTER;
+	impulse.x = al_fixmul(impulse.x, factor);
+	impulse.y = al_fixmul(impulse.y, factor);
+	apply_impulse_to_proc(single_pr, struck_point, impulse);
 
-       apply_impulse_to_group_at_member_vertex(group_core, group_pr, collision_vertex, force, impulse_angle);
-//       apply_impulse_to_proc_at_collision_vertex(pr, collision_vertex, force, impulse_angle);
-//       group_pr->collided_this_cycle = 1;
-//       group_core->collided_this_cycle = 1;
-
-       impulse_angle = get_angle(collision_y - group_pr->provisional_position.y, collision_x - group_pr->provisional_position.x);
-//       mass_proportion = (group_core->group_mass * 100) / single_pr->mass;
-//       mass_proportion *= mass_proportion;
-//       mass_proportion /= 100;
-       force = (collision_speed * group_core->group_mass);//al_itofix(100); //check_proc_force_share / FORCE_DIVISOR;
-       if (single_pr->mass_for_collision_comparison > group_core->group_mass_for_collision_comparison)
-								force /= COLLISION_FORCE_DIVISOR_HEAVIER;
-								 else
-  								force /= COLLISION_FORCE_DIVISOR_LIGHTER;
-       apply_impulse_to_proc_at_vector_point(single_pr, struck_point_angle, struck_point_dist, force, impulse_angle);
-//       apply_impulse_to_group(gr2, struck_point_old_x, struck_point_old_y, force, impulse_angle);
-//       single_pr->collided_this_cycle = 1;
-
-       fix_group_speed(&w.core[single_pr->core_index]);
-       fix_group_speed(group_core);
-
-
+	fix_group_speed(&w.core[single_pr->core_index]);
+	fix_group_speed(group_core);
 
 }
 
@@ -1392,144 +1360,89 @@ First group is the group whose member's vertex hit a member of the second group
 static void group_group_collision(struct proc_struct* vertex_pr, struct proc_struct* other_pr, int collision_vertex)
 {
 
-       struct core_struct* group_core1 = &w.core[vertex_pr->core_index];
-       struct core_struct* group_core2 = &w.core[other_pr->core_index];
+	struct core_struct* group_core1 = &w.core[vertex_pr->core_index];
+	struct core_struct* group_core2 = &w.core[other_pr->core_index];
 
-       group_core1->contact_core_index = group_core2->index;
-       group_core1->contact_core_timestamp = group_core2->created_timestamp;
-       group_core2->contact_core_index = group_core1->index;
-       group_core2->contact_core_timestamp = group_core1->created_timestamp;
+	group_core1->contact_core_index = group_core2->index;
+	group_core1->contact_core_timestamp = group_core2->created_timestamp;
+	group_core2->contact_core_index = group_core1->index;
+	group_core2->contact_core_timestamp = group_core1->created_timestamp;
 
-       al_fixed collision_x = vertex_pr->provisional_position.x + fixed_xpart(vertex_pr->provisional_angle + vertex_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], vertex_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]);
-       al_fixed collision_y = vertex_pr->provisional_position.y + fixed_ypart(vertex_pr->provisional_angle + vertex_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], vertex_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]);
-// calculate the velocity of the vertex of pr that hit check_proc:
-       al_fixed vertex_speed_x = collision_x
-                      - (vertex_pr->position.x + fixed_xpart(vertex_pr->angle + vertex_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], vertex_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]));
-       al_fixed vertex_speed_y = collision_y
-                      - (vertex_pr->position.y + fixed_ypart(vertex_pr->angle + vertex_pr->nshape_ptr->vertex_angle_fixed [collision_vertex], vertex_pr->nshape_ptr->vertex_dist_fixed [collision_vertex]));
+	cart cp = rotate_cart(vertex_pr->nshape_ptr->vertex_pos[collision_vertex], vertex_pr->provisional_angle);
+	cart collision = cart_plus_xy(vertex_pr->provisional_position, cp.x, cp.y);
+// calculate the velocity of the vertex of vertex_pr that hit other_pr:
+	cart cp2 = rotate_cart(vertex_pr->nshape_ptr->vertex_pos[collision_vertex], vertex_pr->angle);
+	cart vertex_speed = cart_plus_xy(collision, - vertex_pr->position.x - cp2.x, - vertex_pr->position.y - cp2.y);
 
-       al_fixed struck_point_angle = get_angle(collision_y - other_pr->provisional_position.y, collision_x - other_pr->provisional_position.x);
-       al_fixed struck_point_dist = distance_oct(collision_y - other_pr->provisional_position.y, collision_x - other_pr->provisional_position.x);
-       al_fixed struck_point_old_x = other_pr->position.x + fixed_xpart(struck_point_angle - (other_pr->provisional_angle - other_pr->angle), struck_point_dist);
-       al_fixed struck_point_old_y = other_pr->position.y + fixed_ypart(struck_point_angle - (other_pr->provisional_angle - other_pr->angle), struck_point_dist);
-       al_fixed struck_point_speed_x = collision_x - struck_point_old_x;
-       al_fixed struck_point_speed_y = collision_y - struck_point_old_y;
+	cart struck_point = cart_plus_xy(collision, - other_pr->provisional_position.x, - other_pr->provisional_position.y);
+	cart shift = rotate_cart(struck_point, - (other_pr->provisional_angle - other_pr->angle));
+	cart struck_point_old = cart_plus_xy(other_pr->position, shift.x, shift.y);
+	cart struck_point_speed = cart_plus_xy(collision, - struck_point_old.x, - struck_point_old.y);
 
-       al_fixed collision_speed_x = vertex_speed_x - struck_point_speed_x;
-       al_fixed collision_speed_y = vertex_speed_y - struck_point_speed_y;
 
-       al_fixed collision_speed = distance_oct(collision_speed_y, collision_speed_x);
+	al_fixed collision_speed = distance_oct(vertex_speed.x - struck_point_speed.x, vertex_speed.y - struck_point_speed.y);
 
-       al_fixed impulse_angle = get_angle(collision_y - other_pr->provisional_position.y, collision_x - other_pr->provisional_position.x);
-       al_fixed force = (collision_speed * group_core2->group_mass);//al_itofix(100); //pr_force_share / FORCE_DIVISOR;
-       if (group_core1->group_mass_for_collision_comparison > group_core2->group_mass_for_collision_comparison)
-								force /= COLLISION_FORCE_DIVISOR_HEAVIER;
-								 else
-  								force /= COLLISION_FORCE_DIVISOR_LIGHTER;
+	cart impulse = struck_point;
+	al_fixed factor = al_fixdiv(collision_speed * group_core2->group_mass, distance_oct(impulse.x, impulse.y));
+	if (group_core1->group_mass_for_collision_comparison > group_core2->group_mass_for_collision_comparison)
+		factor /= COLLISION_FORCE_DIVISOR_HEAVIER;
+	else
+		factor /= COLLISION_FORCE_DIVISOR_LIGHTER;
+	impulse.x = al_fixmul(impulse.x, factor);
+	impulse.y = al_fixmul(impulse.y, factor);
+	cart lever = cart_plus_xy(cp2, vertex_pr->position.x - group_core1->group_centre_of_mass.x, vertex_pr->position.y - group_core1->group_centre_of_mass.y);
+	apply_impulse_to_group(group_core1, lever, impulse);
 
-       apply_impulse_to_group_at_member_vertex(group_core1, vertex_pr, collision_vertex, force, impulse_angle);
-//       vertex_pr->collided_this_cycle = 1;
-//       gr1->collided_this_cycle = 1;
+	impulse = cp;
+	factor = al_fixdiv(collision_speed * group_core1->group_mass, distance_oct(impulse.x, impulse.y));
+	if (group_core2->group_mass_for_collision_comparison > group_core1->group_mass_for_collision_comparison)
+		factor /= COLLISION_FORCE_DIVISOR_HEAVIER;
+	else
+		factor /= COLLISION_FORCE_DIVISOR_LIGHTER;
+	impulse.x = al_fixmul(impulse.x, factor);
+	impulse.y = al_fixmul(impulse.y, factor);
+	lever = cart_plus_xy(struck_point_old, - group_core2->group_centre_of_mass.x, - group_core2->group_centre_of_mass.y);
+	apply_impulse_to_group(group_core2, lever, impulse);
 
-       impulse_angle = get_angle(collision_y - vertex_pr->provisional_position.y, collision_x - vertex_pr->provisional_position.x);
-       force = (collision_speed * group_core1->group_mass);//al_itofix(100); //check_proc_force_share / FORCE_DIVISOR;
-       if (group_core2->group_mass_for_collision_comparison > group_core1->group_mass_for_collision_comparison)
-								force /= COLLISION_FORCE_DIVISOR_HEAVIER;
-								 else
-  								force /= COLLISION_FORCE_DIVISOR_LIGHTER;
-       apply_impulse_to_group(group_core2, struck_point_old_x, struck_point_old_y, force, impulse_angle);
-//       other_pr->collided_this_cycle = 1;
-//       gr2->collided_this_cycle = 1;
-
-       fix_group_speed(group_core1);
-       fix_group_speed(group_core2);
-
+	fix_group_speed(group_core1);
+	fix_group_speed(group_core2);
 
 }
 
 // assumes pr is not a member of a group
-void apply_impulse_to_proc_at_vertex(struct proc_struct* pr, int v, al_fixed force, al_fixed impulse_angle)
+void apply_impulse_to_proc(struct proc_struct* pr, cart lever, cart impulse)
 {
-// fpr("\n force %f applied to proc %i (apply_impulse_to_proc_at_vertex)", al_fixtof(force), pr->index);
+	if (!w.core[pr->core_index].mobile)
+		return;
 
- if (!w.core[pr->core_index].mobile)
-  return;
+	al_fixed torque = (al_fixmul(impulse.x, lever.y) - al_fixmul(impulse.y, lever.x)) / FORCE_DIST_DIVISOR;
 
-// force = al_fixmul(force, al_itofix(100));
+	pr->spin -= torque / (w.core[pr->core_index].group_moment * TORQUE_DIVISOR);
 
- al_fixed force_dist_from_centre = pr->nshape_ptr->vertex_dist_fixed [v] / FORCE_DIST_DIVISOR;
- al_fixed lever_angle = pr->nshape_ptr->vertex_angle_fixed [v] + pr->angle;
+	w.core[pr->core_index].group_speed.x = collision_accel(w.core[pr->core_index].group_speed.x, al_fixdiv(impulse.x, al_itofix(pr->mass)));
+	w.core[pr->core_index].group_speed.y = collision_accel(w.core[pr->core_index].group_speed.y, al_fixdiv(impulse.y, al_itofix(pr->mass)));
 
- al_fixed torque = al_fixmul(al_fixmul(fixed_sin(lever_angle - impulse_angle), force_dist_from_centre), force);
-
-// pr->spin_change -= al_fixdiv(torque, al_itofix(pr->moment));
- pr->spin -= torque / (w.core[pr->core_index].group_moment * TORQUE_DIVISOR);
-
-// fprintf(stdout, "\nproc_at_vertex: v %i impulse_angle %i torque %i spin_change %f", v, fixed_angle_to_int(impulse_angle), fixed_angle_to_int(torque), fixed_to_radians(pr->spin_change));
-
- w.core[pr->core_index].group_speed.x = collision_accel(w.core[pr->core_index].group_speed.x, al_fixdiv(fixed_xpart(impulse_angle, force), al_itofix(pr->mass)));
- w.core[pr->core_index].group_speed.y = collision_accel(w.core[pr->core_index].group_speed.y, al_fixdiv(fixed_ypart(impulse_angle, force), al_itofix(pr->mass)));
-
-// w.core[pr->core_index].group_speed.x += al_fixdiv(fixed_xpart(impulse_angle, force), al_itofix(pr->mass));
-// w.core[pr->core_index].group_speed.y += al_fixdiv(fixed_ypart(impulse_angle, force), al_itofix(pr->mass));
-
- fix_group_speed(&w.core[pr->core_index]);
-
-
+	fix_group_speed(&w.core[pr->core_index]);
 }
 
-// assumes pr is not a member of a group
-void apply_impulse_to_proc_at_collision_vertex(struct proc_struct* pr, int cv, al_fixed force, al_fixed impulse_angle)
+void apply_impulse_to_group(struct core_struct* group_core, cart lever, cart impulse)
 {
-// fpr("\n force %f applied to proc %i (apply_impulse_to_proc_at_collision_vertex)", al_fixtof(force), pr->index);
+	if (!group_core->mobile)
+		return;
 
- if (!w.core[pr->core_index].mobile)
-  return;
+	al_fixed torque = (al_fixmul(impulse.x, lever.y) - al_fixmul(impulse.y, lever.x)) / FORCE_DIST_DIVISOR;
 
- al_fixed force_dist_from_centre = pr->nshape_ptr->vertex_dist_fixed [cv] / FORCE_DIST_DIVISOR;
- al_fixed lever_angle = pr->nshape_ptr->vertex_angle_fixed [cv] + pr->angle;
+	group_core->group_spin -= torque / (group_core->group_moment * TORQUE_DIVISOR);
 
- al_fixed torque = al_fixmul(al_fixmul(fixed_sin(lever_angle - impulse_angle), force_dist_from_centre), force);
+	group_core->group_speed.x = collision_accel(group_core->group_speed.x, al_fixdiv(impulse.x, al_itofix(group_core->group_mass)));
+	group_core->group_speed.y = collision_accel(group_core->group_speed.y, al_fixdiv(impulse.y, al_itofix(group_core->group_mass)));
 
- pr->spin -= torque / (w.core[pr->core_index].group_moment * TORQUE_DIVISOR);
-
- w.core[pr->core_index].group_speed.x = collision_accel(w.core[pr->core_index].group_speed.x, al_fixdiv(fixed_xpart(impulse_angle, force), al_itofix(pr->mass)));
- w.core[pr->core_index].group_speed.y = collision_accel(w.core[pr->core_index].group_speed.y, al_fixdiv(fixed_ypart(impulse_angle, force), al_itofix(pr->mass)));
-
-// w.core[pr->core_index].group_speed.x += al_fixdiv(fixed_xpart(impulse_angle, force), al_itofix(pr->mass));
-// w.core[pr->core_index].group_speed.y += al_fixdiv(fixed_ypart(impulse_angle, force), al_itofix(pr->mass));
-
- fix_group_speed(&w.core[pr->core_index]);
-
+	fix_group_speed(group_core);
 }
-
 
 
 // assumes pr is not a member of a group
-// point_angle and point_dist are a vector from the proc's centre to the collision point.
-void apply_impulse_to_proc_at_vector_point(struct proc_struct* pr, al_fixed point_angle, al_fixed point_dist, al_fixed force, al_fixed impulse_angle)
-{
-// fpr("\n force %f applied to proc %i (apply_impulse_to_proc_at_vector_point)", al_fixtof(force), pr->index);
 
- if (!w.core[pr->core_index].mobile)
-  return;
-
- al_fixed torque = al_fixmul(al_fixmul(fixed_sin(point_angle - impulse_angle), point_dist), force);
-
- pr->spin -= torque / (w.core[pr->core_index].group_moment * TORQUE_DIVISOR);
-
-// fprintf(stdout, "\nproc_at_point: pr %i ang,dis %i,%i impulse_angle %i force %f torque %f spin_change %f", pr->index, fixed_angle_to_int(point_angle), al_fixtoi(point_dist), fixed_angle_to_int(impulse_angle), al_fixtof(force), al_fixtof(torque), fixed_to_radians(torque / pr->moment));
-
- w.core[pr->core_index].group_speed.x = collision_accel(w.core[pr->core_index].group_speed.x, al_fixdiv(fixed_xpart(impulse_angle, force), al_itofix(pr->mass)));
- w.core[pr->core_index].group_speed.y = collision_accel(w.core[pr->core_index].group_speed.y, al_fixdiv(fixed_ypart(impulse_angle, force), al_itofix(pr->mass)));
-
-// w.core[pr->core_index].group_speed.x += al_fixdiv(fixed_xpart(impulse_angle, force), al_itofix(pr->mass));
-// w.core[pr->core_index].group_speed.y += al_fixdiv(fixed_ypart(impulse_angle, force), al_itofix(pr->mass));
-
- fix_group_speed(&w.core[pr->core_index]);
-
-
-}
 
 static al_fixed collision_accel(al_fixed speed, al_fixed accel)
 {
@@ -1577,62 +1490,6 @@ static void fix_group_speed(struct core_struct* group_core)
   group_core->group_speed.x = (group_core->group_speed.x * dragged) / 1024;
   group_core->group_speed.y = (group_core->group_speed.y * dragged) / 1024;
 	}
-
-}
-
-
-// gr should be a core
-void apply_impulse_to_group(struct core_struct* group_core, al_fixed x, al_fixed y, al_fixed force, al_fixed impulse_angle)
-{
-// fpr("\n force %f applied to GROUP (apply_impulse_to_group)", al_fixtof(force));
-
- if (!group_core->mobile)
-  return;
-
- al_fixed force_dist_from_centre = hypot(y - group_core->group_centre_of_mass.y, x - group_core->group_centre_of_mass.x) / FORCE_DIST_DIVISOR;
- al_fixed lever_angle = get_angle(y - group_core->group_centre_of_mass.y, x - group_core->group_centre_of_mass.x);
- al_fixed torque = al_fixmul(al_fixmul(fixed_sin(lever_angle - impulse_angle), force_dist_from_centre), force); //al_fixdiv(force, TORQUE_DIVISOR_FIXED)));
-
- group_core->group_spin -= torque / (group_core->group_moment * TORQUE_DIVISOR);
-
- group_core->group_speed.x = collision_accel(group_core->group_speed.x, al_fixdiv(fixed_xpart(impulse_angle, force), al_itofix(group_core->group_mass)));
- group_core->group_speed.y = collision_accel(group_core->group_speed.y, al_fixdiv(fixed_ypart(impulse_angle, force), al_itofix(group_core->group_mass)));
-
-// group_core->group_speed.x += al_fixdiv(fixed_xpart(impulse_angle, force), al_itofix(group_core->group_mass));
-// group_core->group_speed.y += al_fixdiv(fixed_ypart(impulse_angle, force), al_itofix(group_core->group_mass));
-
- fix_group_speed(group_core);
-
-}
-
-
-void apply_impulse_to_group_at_member_vertex(struct core_struct* group_core, struct proc_struct* pr, int vertex, al_fixed force, al_fixed impulse_angle)
-{
-
-// fpr("\n force %f applied to GROUP (apply_impulse_to_group_at_member_vertex)", al_fixtof(force));
-
- if (!group_core->mobile)
-  return;
-
- al_fixed x = pr->position.x + fixed_xpart(pr->angle + pr->nshape_ptr->vertex_angle_fixed [vertex], pr->nshape_ptr->vertex_dist_fixed [vertex]);
- al_fixed y = pr->position.y + fixed_ypart(pr->angle + pr->nshape_ptr->vertex_angle_fixed [vertex], pr->nshape_ptr->vertex_dist_fixed [vertex]);
-
- al_fixed force_dist_from_centre = distance_oct(y - group_core->group_centre_of_mass.y, x - group_core->group_centre_of_mass.x) / FORCE_DIST_DIVISOR;
- al_fixed lever_angle = get_angle(y - group_core->group_centre_of_mass.y, x - group_core->group_centre_of_mass.x);
- al_fixed torque = al_fixmul(al_fixmul(fixed_sin(lever_angle - impulse_angle), force_dist_from_centre), force);
-
-// group_core->spin_change -= al_fixdiv(torque, al_itofix(group_core->moment));
- group_core->group_spin -= torque / (group_core->group_moment * TORQUE_DIVISOR);
-
-// fprintf(stdout, "\ngroup: v %i impulse_angle %i torque %i spin_change %f", vertex, fixed_angle_to_int(impulse_angle), fixed_angle_to_int(torque), fixed_to_radians(group_core->spin_change));
-
- group_core->group_speed.x = collision_accel(group_core->group_speed.x, al_fixdiv(fixed_xpart(impulse_angle, force), al_itofix(group_core->group_mass)));
- group_core->group_speed.y = collision_accel(group_core->group_speed.y, al_fixdiv(fixed_ypart(impulse_angle, force), al_itofix(group_core->group_mass)));
-
-// group_core->group_speed.x += al_fixdiv(fixed_xpart(impulse_angle, force), al_itofix(group_core->group_mass));
-// group_core->group_speed.y += al_fixdiv(fixed_ypart(impulse_angle, force), al_itofix(group_core->group_mass));
-
- fix_group_speed(group_core);
 
 }
 

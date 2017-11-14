@@ -40,8 +40,7 @@ struct dshape_init_state_struct
 	int current_nshape;
 
 	int last_display_vertex;
-	al_fixed last_vertex_angle;
-	al_fixed last_vertex_dist_fixed;
+	cart last_vertex_pos;
 };
 struct dshape_init_state_struct dshape_init;
 
@@ -3613,8 +3612,8 @@ static void start_dshape(int ds, int keyword_index)
   nshape[ds].unlock_index = nshape_init_data [ds].unlock_index;
 
 // now, add a collision vertex near the middle (this will prevent things like shapes spawning on top of other shapes):
-  nshape[ds].vertex_angle_fixed [nshape[ds].vertices] = 0;
-  nshape[ds].vertex_dist_fixed [nshape[ds].vertices] = al_itofix(3); // but not exactly on the middle (could cause div by zero somewhere?)
+  nshape[ds].vertex_pos[nshape[ds].vertices].x = al_itofix(3); // but not exactly on the middle (could cause div by zero somewhere?)
+  nshape[ds].vertex_pos[nshape[ds].vertices].y = 0;
   nshape[ds].vertex_dist_pixel [nshape[ds].vertices] = 3;
 
   nshape[ds].vertices ++;
@@ -3684,24 +3683,25 @@ static void add_vertex(int x, int y, int add_collision_vertex)
  zshape_add_vertex(x, y, add_collision_vertex);
 #endif
 
- dshape [dshape_init.current_dshape].display_vertex_angle [dshape_init.current_poly] [dshape[dshape_init.current_dshape].display_vertices [dshape_init.current_poly]] = atan2(y, x);
- dshape [dshape_init.current_dshape].display_vertex_dist [dshape_init.current_poly] [dshape[dshape_init.current_dshape].display_vertices [dshape_init.current_poly]] = hypot(y, x);
+ dshape [dshape_init.current_dshape].display_vertex_pos[dshape_init.current_poly] [dshape[dshape_init.current_dshape].display_vertices [dshape_init.current_poly]][0] = x;
+ dshape [dshape_init.current_dshape].display_vertex_pos[dshape_init.current_poly] [dshape[dshape_init.current_dshape].display_vertices [dshape_init.current_poly]][1] = y;
 
  if (add_collision_vertex)
 	{
-  nshape[dshape_init.current_nshape].vertex_angle_fixed [nshape[dshape_init.current_nshape].vertices] = get_angle(al_itofix(y), al_itofix(x));
-  nshape[dshape_init.current_nshape].vertex_dist_fixed [nshape[dshape_init.current_nshape].vertices] = distance(al_itofix(y), al_itofix(x));
-  nshape[dshape_init.current_nshape].vertex_dist_pixel [nshape[dshape_init.current_nshape].vertices] = al_fixtoi(nshape[dshape_init.current_nshape].vertex_dist_fixed [nshape[dshape_init.current_nshape].vertices]);
-  if (nshape[dshape_init.current_nshape].max_length < nshape[dshape_init.current_nshape].vertex_dist_fixed [nshape[dshape_init.current_nshape].vertices])
-			nshape[dshape_init.current_nshape].max_length = nshape[dshape_init.current_nshape].vertex_dist_fixed [nshape[dshape_init.current_nshape].vertices];
+  nshape[dshape_init.current_nshape].vertex_pos[nshape[dshape_init.current_nshape].vertices].x = al_itofix(x);
+  nshape[dshape_init.current_nshape].vertex_pos[nshape[dshape_init.current_nshape].vertices].y = al_itofix(y);
+  al_fixed dist = distance(al_itofix(y), al_itofix(x));
+  nshape[dshape_init.current_nshape].vertex_dist_pixel [nshape[dshape_init.current_nshape].vertices] = al_fixtoi(dist);
+  if (nshape[dshape_init.current_nshape].max_length < dist)
+			nshape[dshape_init.current_nshape].max_length = dist;
 
   nshape[dshape_init.current_nshape].vertices ++;
 	}
 
 // last_vertex stuff is used to calculate link position if this vertex is the base of a link
 //  (because the vertex will probably just be a display vertex, so only float data would otherwise be available)
-	dshape_init.last_vertex_angle = get_angle(al_itofix(y), al_itofix(x));
-	dshape_init.last_vertex_dist_fixed = distance(al_itofix(y), al_itofix(x));
+	dshape_init.last_vertex_pos.x = al_itofix(x);
+	dshape_init.last_vertex_pos.y = al_itofix(y);
 	dshape_init.last_display_vertex = dshape[dshape_init.current_dshape].display_vertices [dshape_init.current_poly] - 1;
 
  collision_mask_poly[dshape_init.current_dshape].vertex_x [dshape_init.current_poly] [collision_mask_poly[dshape_init.current_dshape].vertices [dshape_init.current_poly]] = x;
@@ -3747,16 +3747,16 @@ static void add_vertex_vector(int angle, int dist, int add_collision_vertex)
 		error_call();
 	}
 #endif
- dshape [dshape_init.current_dshape].display_vertex_angle [dshape_init.current_poly] [dshape[dshape_init.current_dshape].display_vertices [dshape_init.current_poly]] = angle_to_radians(angle);
- dshape [dshape_init.current_dshape].display_vertex_dist [dshape_init.current_poly] [dshape[dshape_init.current_dshape].display_vertices [dshape_init.current_poly]] = dist;
+ dshape [dshape_init.current_dshape].display_vertex_pos[dshape_init.current_poly][dshape[dshape_init.current_dshape].display_vertices[dshape_init.current_poly]][0] = dist * cos(angle_to_radians(angle));
+ dshape [dshape_init.current_dshape].display_vertex_pos[dshape_init.current_poly][dshape[dshape_init.current_dshape].display_vertices[dshape_init.current_poly]][1] = dist * sin(angle_to_radians(angle));
 
  if (add_collision_vertex)
 	{
-  nshape[dshape_init.current_nshape].vertex_angle_fixed [nshape[dshape_init.current_nshape].vertices] = int_angle_to_fixed(angle);
-  nshape[dshape_init.current_nshape].vertex_dist_fixed [nshape[dshape_init.current_nshape].vertices] = al_itofix(dist);
-  nshape[dshape_init.current_nshape].vertex_dist_pixel [nshape[dshape_init.current_nshape].vertices] = al_fixtoi(nshape[dshape_init.current_nshape].vertex_dist_fixed [nshape[dshape_init.current_nshape].vertices]);
-  if (nshape[dshape_init.current_nshape].max_length < nshape[dshape_init.current_nshape].vertex_dist_fixed [nshape[dshape_init.current_nshape].vertices])
-			nshape[dshape_init.current_nshape].max_length = nshape[dshape_init.current_nshape].vertex_dist_fixed [nshape[dshape_init.current_nshape].vertices];
+  nshape[dshape_init.current_nshape].vertex_pos[nshape[dshape_init.current_nshape].vertices].x = fixed_xpart(int_angle_to_fixed(angle), al_itofix(dist));
+  nshape[dshape_init.current_nshape].vertex_pos[nshape[dshape_init.current_nshape].vertices].y = fixed_ypart(int_angle_to_fixed(angle), al_itofix(dist));
+  nshape[dshape_init.current_nshape].vertex_dist_pixel [nshape[dshape_init.current_nshape].vertices] = dist;
+  if (nshape[dshape_init.current_nshape].max_length < al_itofix(dist))
+			nshape[dshape_init.current_nshape].max_length = al_itofix(dist);
 
   nshape[dshape_init.current_nshape].vertices ++;
 
@@ -3764,12 +3764,12 @@ static void add_vertex_vector(int angle, int dist, int add_collision_vertex)
 
 // last_vertex stuff is used to calculate link position if this vertex is the base of a link
 //  (because the vertex will probably just be a display vertex, so only float data would otherwise be available)
-	dshape_init.last_vertex_angle = int_angle_to_fixed(angle);
-	dshape_init.last_vertex_dist_fixed = al_itofix(dist);
+	dshape_init.last_vertex_pos.x = fixed_xpart(int_angle_to_fixed(angle), al_itofix(dist));
+	dshape_init.last_vertex_pos.y = fixed_ypart(int_angle_to_fixed(angle), al_itofix(dist));
 	dshape_init.last_display_vertex = dshape[dshape_init.current_dshape].display_vertices [dshape_init.current_poly] - 1;
 
- collision_mask_poly[dshape_init.current_dshape].vertex_x [dshape_init.current_poly] [collision_mask_poly[dshape_init.current_dshape].vertices [dshape_init.current_poly]] = al_fixtoi(fixed_xpart(dshape_init.last_vertex_angle, dshape_init.last_vertex_dist_fixed));
- collision_mask_poly[dshape_init.current_dshape].vertex_y [dshape_init.current_poly] [collision_mask_poly[dshape_init.current_dshape].vertices [dshape_init.current_poly]] = al_fixtoi(fixed_ypart(dshape_init.last_vertex_angle, dshape_init.last_vertex_dist_fixed));
+ collision_mask_poly[dshape_init.current_dshape].vertex_x [dshape_init.current_poly] [collision_mask_poly[dshape_init.current_dshape].vertices [dshape_init.current_poly]] = al_fixtoi(dshape_init.last_vertex_pos.x);
+ collision_mask_poly[dshape_init.current_dshape].vertex_y [dshape_init.current_poly] [collision_mask_poly[dshape_init.current_dshape].vertices [dshape_init.current_poly]] = al_fixtoi(dshape_init.last_vertex_pos.y);
 
  collision_mask_poly[dshape_init.current_dshape].vertices [dshape_init.current_poly] ++;
 
@@ -3873,12 +3873,14 @@ static void add_outline_vertex_at_last_poly_vertex(int extra_distance)
 
 //fpr("\n adding outline vertex %i dist %f", dshape[dshape_init.current_dshape].outline_vertices, extra_distance);
 
-	dshape[dshape_init.current_nshape].outline_vertex_angle_fixed [dshape[dshape_init.current_dshape].outline_vertices] = dshape_init.last_vertex_angle;
-	dshape[dshape_init.current_nshape].outline_vertex_dist_fixed [dshape[dshape_init.current_dshape].outline_vertices] = dshape_init.last_vertex_dist_fixed + al_itofix(extra_distance);
+	al_fixed dist = distance(dshape_init.last_vertex_pos.x, dshape_init.last_vertex_pos.y);
+	al_fixed factor = al_fixdiv(dist + extra_distance, dist);
+	dshape[dshape_init.current_nshape].outline_vertex_pos[dshape[dshape_init.current_dshape].outline_vertices].x = al_fixmul(factor, dshape_init.last_vertex_pos.x);
+	dshape[dshape_init.current_nshape].outline_vertex_pos[dshape[dshape_init.current_dshape].outline_vertices].y = al_fixmul(factor, dshape_init.last_vertex_pos.y);
 
 // these are float values used only for display:
-	dshape[dshape_init.current_nshape].outline_vertex_angle [dshape[dshape_init.current_dshape].outline_vertices] = fixed_to_radians(dshape_init.last_vertex_angle);
-	dshape[dshape_init.current_nshape].outline_vertex_dist [dshape[dshape_init.current_dshape].outline_vertices] = al_fixtof(dshape_init.last_vertex_dist_fixed) + extra_distance;
+	dshape[dshape_init.current_nshape].outline_vertex_angle [dshape[dshape_init.current_dshape].outline_vertices] = atan2(al_fixtof(dshape_init.last_vertex_pos.y), al_fixtof(dshape_init.last_vertex_pos.x));
+	dshape[dshape_init.current_nshape].outline_vertex_dist [dshape[dshape_init.current_dshape].outline_vertices] = al_fixtof(dist) + extra_distance;
 
 	dshape[dshape_init.current_dshape].outline_vertices ++;
 
@@ -3894,12 +3896,12 @@ static void add_outline_vertex_at_xy(int x, int y)
 	}
 #endif
 
-	dshape[dshape_init.current_nshape].outline_vertex_angle_fixed [dshape[dshape_init.current_dshape].outline_vertices] = get_angle(al_itofix(y), al_itofix(x));
-	dshape[dshape_init.current_nshape].outline_vertex_dist_fixed [dshape[dshape_init.current_dshape].outline_vertices] = distance(al_itofix(y), al_itofix(x));
+	dshape[dshape_init.current_nshape].outline_vertex_pos[dshape[dshape_init.current_dshape].outline_vertices].x = al_itofix(x);
+	dshape[dshape_init.current_nshape].outline_vertex_pos[dshape[dshape_init.current_dshape].outline_vertices].y = al_itofix(y);
 
 // these are float values used only for display:
-	dshape[dshape_init.current_nshape].outline_vertex_angle [dshape[dshape_init.current_dshape].outline_vertices] = fixed_to_radians(dshape[dshape_init.current_nshape].outline_vertex_angle_fixed [dshape[dshape_init.current_dshape].outline_vertices]);
-	dshape[dshape_init.current_nshape].outline_vertex_dist [dshape[dshape_init.current_dshape].outline_vertices] = al_fixtof(dshape[dshape_init.current_nshape].outline_vertex_dist_fixed [dshape[dshape_init.current_dshape].outline_vertices]);
+	dshape[dshape_init.current_nshape].outline_vertex_angle [dshape[dshape_init.current_dshape].outline_vertices] = atan2(y, x);
+	dshape[dshape_init.current_nshape].outline_vertex_dist [dshape[dshape_init.current_dshape].outline_vertices] = hypot(y, x);
 
 	dshape[dshape_init.current_dshape].outline_vertices ++;
 
@@ -4569,13 +4571,13 @@ void init_nshape_collision_masks(void)
 
 
 // the * 13 / 10 is there because interfaces are scaled up from the basic outline values by 1.3
-    xa = MASK_CENTRE_FIXED + fixed_xpart(dshape[s].outline_vertex_angle_fixed [v], (dshape[s].outline_vertex_dist_fixed [v] * 13) / 10);
+    xa = MASK_CENTRE_FIXED + (dshape[s].outline_vertex_pos[v].x * 13) / 10;
     xa = al_itofix(al_fixtoi(xa) >> COLLISION_MASK_BITSHIFT);
-    ya = MASK_CENTRE_FIXED + fixed_ypart(dshape[s].outline_vertex_angle_fixed [v], (dshape[s].outline_vertex_dist_fixed [v] * 13) / 10);
+    ya = MASK_CENTRE_FIXED + (dshape[s].outline_vertex_pos[v].y * 13) / 10;
     ya = al_itofix(al_fixtoi(ya) >> COLLISION_MASK_BITSHIFT);
-    xb = MASK_CENTRE_FIXED + fixed_xpart(dshape[s].outline_vertex_angle_fixed [next_vertex], (dshape[s].outline_vertex_dist_fixed [next_vertex] * 13) / 10);
+    xb = MASK_CENTRE_FIXED + (dshape[s].outline_vertex_pos[next_vertex].x * 13) / 10;
     xb = al_itofix(al_fixtoi(xb) >> COLLISION_MASK_BITSHIFT);
-    yb = MASK_CENTRE_FIXED + fixed_ypart(dshape[s].outline_vertex_angle_fixed [next_vertex], (dshape[s].outline_vertex_dist_fixed [next_vertex] * 13) / 10);
+    yb = MASK_CENTRE_FIXED + (dshape[s].outline_vertex_pos[next_vertex].y * 13) / 10;
     yb = al_itofix(al_fixtoi(yb) >> COLLISION_MASK_BITSHIFT);
 
     draw_line_on_nshape_mask(s, 1, xa, ya, xb, yb);		// note -1

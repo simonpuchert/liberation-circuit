@@ -57,15 +57,15 @@ const al_fixed fixed_cos_tbl [IC_FIXED_COS_TABLE_SIZE + 1];
 al_fixed fixed_cos(al_fixed x)
 {
 
- al_fixed range_between_table_entries = (fixed_cos_tbl[(((x + 0x4000) >> IC_TRIG_PRECISION) & IC_TRIG_MASK) + 1]
-          -  fixed_cos_tbl[((x + 0x4000) >> IC_TRIG_PRECISION) & IC_TRIG_MASK]);
+ al_fixed range_between_table_entries = (fixed_cos_tbl[((x >> IC_TRIG_PRECISION) & IC_TRIG_MASK) + 1]
+          -  fixed_cos_tbl[(x >> IC_TRIG_PRECISION) & IC_TRIG_MASK]);
 
- al_fixed interpolation_proportion = al_fixdiv((x + 0x4000) & ((1<<IC_TRIG_PRECISION)-1), ((1<<IC_TRIG_PRECISION)-1));
+ al_fixed interpolation_proportion = al_fixdiv(x & ((1<<IC_TRIG_PRECISION)-1), 1<<IC_TRIG_PRECISION);
 
  al_fixed interpolation_amount = al_fixmul(range_between_table_entries, interpolation_proportion);
 
 
- return fixed_cos_tbl[((x + 0x4000) >> IC_TRIG_PRECISION) & IC_TRIG_MASK]
+ return fixed_cos_tbl[(x >> IC_TRIG_PRECISION) & IC_TRIG_MASK]
    + interpolation_amount;
 
 }
@@ -73,14 +73,14 @@ al_fixed fixed_cos(al_fixed x)
 al_fixed fixed_sin(al_fixed x)
 {
 
- al_fixed range_between_table_entries = (fixed_cos_tbl[(((x - 0x400000 + 0x4000) >> IC_TRIG_PRECISION) & IC_TRIG_MASK) + 1]
-          -  fixed_cos_tbl[((x - 0x400000 + 0x4000) >> IC_TRIG_PRECISION) & IC_TRIG_MASK]);
+ al_fixed range_between_table_entries = (fixed_cos_tbl[(((x - 0x400000) >> IC_TRIG_PRECISION) & IC_TRIG_MASK) + 1]
+          -  fixed_cos_tbl[((x - 0x400000) >> IC_TRIG_PRECISION) & IC_TRIG_MASK]);
 
- al_fixed interpolation_proportion = al_fixdiv((x - 0x400000 + 0x4000) & ((1<<IC_TRIG_PRECISION)-1), ((1<<IC_TRIG_PRECISION)-1));
+ al_fixed interpolation_proportion = al_fixdiv((x - 0x400000) & ((1<<IC_TRIG_PRECISION)-1), 1<<IC_TRIG_PRECISION);
 
  al_fixed interpolation_amount = al_fixmul(range_between_table_entries, interpolation_proportion);
 
- return fixed_cos_tbl[((x - 0x400000 + 0x4000) >> IC_TRIG_PRECISION) & IC_TRIG_MASK]
+ return fixed_cos_tbl[((x - 0x400000) >> IC_TRIG_PRECISION) & IC_TRIG_MASK]
    + interpolation_amount;
 
 }
@@ -477,6 +477,17 @@ int fixed_to_block(al_fixed fix_num)
  int temp_int = al_fixtoi(fix_num);
  return temp_int / BLOCK_SIZE_PIXELS;
 
+}
+
+cart rotate_cart(cart c, al_fixed angle)
+{
+	cart dir;
+	dir.x = fixed_cos(angle);
+	dir.y = fixed_sin(angle);
+	cart temp_cart;
+	temp_cart.x = al_fixmul(c.x, dir.x) - al_fixmul(c.y, dir.y);
+	temp_cart.y = al_fixmul(c.x, dir.y) + al_fixmul(c.y, dir.x);
+	return temp_cart;
 }
 
 cart cart_plus_vector(cart base_position, al_fixed angle, al_fixed length)

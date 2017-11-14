@@ -10494,6 +10494,7 @@ void draw_proc_shape(float x, float y, al_fixed angle, int shape, int player_ind
  int i, poly, layer;
 
  f_angle = fixed_to_radians(angle);
+ const float rot_x = zoom * cos(f_angle), rot_y = zoom * sin(f_angle);
 
  ALLEGRO_COLOR fill_col;
 // ALLEGRO_COLOR edge_col;
@@ -10520,8 +10521,8 @@ void draw_proc_shape(float x, float y, al_fixed angle, int shape, int player_ind
 		float _x, _y;
 		for (i = 0; i < dsh->display_vertices [poly]; ++i)
 		{
-			_x = x + fxpart(f_angle + dsh->display_vertex_angle [poly] [i], dsh->display_vertex_dist [poly] [i]) * zoom;
-			_y = y + fypart(f_angle + dsh->display_vertex_angle [poly] [i], dsh->display_vertex_dist [poly] [i]) * zoom;
+			_x = x + rot_x * dsh->display_vertex_pos[poly][i][0] - rot_y * dsh->display_vertex_pos[poly][i][1];
+			_y = y + rot_x * dsh->display_vertex_pos[poly][i][1] + rot_y * dsh->display_vertex_pos[poly][i][0];
 			add_tri_vertex(_x, _y, fill_col);
 		}
 
